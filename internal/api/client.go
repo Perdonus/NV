@@ -9,6 +9,12 @@ import (
 	"time"
 )
 
+const (
+	defaultBaseURL        = "https://sosiskibot.ru/basedata"
+	nvLinuxManifestURL   = "https://raw.githubusercontent.com/Perdonus/NV/linux-builds/manifest.json"
+	nvWindowsManifestURL = "https://raw.githubusercontent.com/Perdonus/NV/windows-builds/manifest.json"
+)
+
 type Client struct {
 	baseURL string
 	http    *http.Client
@@ -34,16 +40,28 @@ type ManifestArtifact struct {
 func NewClient(baseURL string) *Client {
 	baseURL = strings.TrimSpace(baseURL)
 	if baseURL == "" {
-		baseURL = "https://sosiskibot.ru/basedata"
+		baseURL = defaultBaseURL
 	}
 	return &Client{
 		baseURL: strings.TrimRight(baseURL, "/"),
-		http: &http.Client{Timeout: 2 * time.Minute},
+		http:    &http.Client{Timeout: 2 * time.Minute},
 	}
 }
 
 func (c *Client) ReleaseManifest() (*ManifestResponse, error) {
-	resp, err := c.http.Get(c.baseURL + "/api/releases/manifest")
+	return c.manifestFromURL(c.baseURL + "/api/releases/manifest")
+}
+
+func (c *Client) NVManifest(goos string) (*ManifestResponse, error) {
+	manifestURL, err := nvManifestURL(goos)
+	if err != nil {
+		return nil, err
+	}
+	return c.manifestFromURL(manifestURL)
+}
+
+func (c *Client) manifestFromURL(url string) (*ManifestResponse, error) {
+	resp, err := c.http.Get(url)
 	if err != nil {
 		return nil, err
 	}
@@ -65,6 +83,17 @@ func (c *Client) ReleaseManifest() (*ManifestResponse, error) {
 		return nil, fmt.Errorf(parsed.Error)
 	}
 	return &parsed, nil
+}
+
+func nvManifestURL(goos string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(goos)) {
+	case "linux":
+		return nvLinuxManifestURL, nil
+	case "windows":
+		return nvWindowsManifestURL, nil
+	default:
+		return "", fmt.Errorf("manifest nv не поддерживает платформу %s", goos)
+	}
 }
 
 func (m *ManifestResponse) Artifact(platform string) *ManifestArtifact {

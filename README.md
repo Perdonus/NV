@@ -1,21 +1,29 @@
 # NV
 
-`nv` — отдельный пакетный менеджер для поставки NeuralV.
+`nv` — пакетный менеджер для пакетов NeuralV.
 
-Сейчас в нём один пакет:
+Доступные пакеты:
 
 - `neuralv`
+- `nv`
 
 Команды:
 
-```sh
-nv install neuralv@latest
-nv install neuralv@1.3.1
-nv uninstall neuralv
-nv -v
+```text
+nv install <package[@version]>
+nv uninstall <package>
+nv version
+nv help
 ```
 
-Установка самого `nv`:
+Версии пакетов:
+
+- `latest`
+- строгий semver `1.2.3`
+
+`install` используется и для первой установки, и для обновления уже установленного пакета. Сам `nv` обновляется через `nv install nv@latest`.
+
+Установка `nv`:
 
 Linux:
 
@@ -28,3 +36,5 @@ Windows:
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/Perdonus/NV/main/install/nv.ps1 | iex"
 ```
+
+Повторный запуск install-скрипта обновляет существующую установку `nv`.
