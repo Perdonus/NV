@@ -49,6 +49,7 @@ type PackageVariant struct {
 	Label             string         `json:"label"`
 	OS                string         `json:"os"`
 	IsDefault         bool           `json:"is_default"`
+	Default           bool           `json:"default"`
 	Version           string         `json:"version"`
 	Channel           string         `json:"channel"`
 	FileName          string         `json:"file_name"`

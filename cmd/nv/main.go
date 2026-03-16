@@ -4,35 +4,28 @@ import (
 	"archive/tar"
 	"archive/zip"
 	"compress/gzip"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path"
 	"path/filepath"
-	"regexp"
 	"runtime"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/Perdonus/NV/internal/api"
+	"github.com/Perdonus/NV/internal/semver"
+	"github.com/Perdonus/NV/internal/state"
 )
 
 const defaultBaseURL = "https://sosiskibot.ru/basedata"
 
-var (
-	nvVersion     = "dev"
-	semverPattern = regexp.MustCompile(`^\d+\.\d+\.\d+$`)
-)
-
-type semver struct {
-	major int
-	minor int
-	patch int
-}
+var nvVersion = "dev"
 
 func main() {
 	client := api.NewClient(resolveBaseURL())
@@ -65,6 +58,16 @@ func handle(args []string, client *api.Client) error {
 	case "help", "-h", "--help":
 		printHelp()
 		return nil
+	case "list":
+		return listInstalledPackages()
+	case "search":
+		query := strings.Join(args[1:], " ")
+		return searchPackages(client, query)
+	case "info":
+		if len(args) < 2 {
+			return errors.New("не хватает имени пакета: info <package>")
+		}
+		return showPackageInfo(client, args[1])
 	case "install":
 		if len(args) < 2 {
 			return errors.New("не хватает спецификации пакета: install <package[@version]>")
@@ -82,23 +85,30 @@ func handle(args []string, client *api.Client) error {
 }
 
 func printHelp() {
-	fmt.Println(`nv
-
-Команды:
+	fmt.Println(`Команды:
   install <package[@version]>
   uninstall <package>
+  list
+  search [query]
+  info <package>
   version | -v | --version
   help | -h | --help
 
 Аргументы:
   <package>
-  <version>: latest | <major.minor.patch>`)
+  <version>
+  [query]`)
 }
 
 func installPackage(client *api.Client, spec string) error {
 	name, version, err := parsePackageSpec(spec)
 	if err != nil {
 		return err
+	}
+
+	installedState, err := state.Load()
+	if err != nil {
+		return fmt.Errorf("не удалось открыть локальное состояние пакетов: %w", err)
 	}
 
 	step(1, 3, fmt.Sprintf("получаем пакет %s", name))
@@ -112,7 +122,31 @@ func installPackage(client *api.Client, spec string) error {
 	if strings.TrimSpace(resolved.Package.Name) == "" || strings.TrimSpace(resolved.Package.Variant.DownloadURL) == "" {
 		return fmt.Errorf("реестр пакетов вернул неполный пакет %s", name)
 	}
-	return installResolvedPackage(&resolved.Package)
+	resolvedVersion, err := normalizePackageVersion(name, resolved.Package.ResolvedVersion)
+	if err != nil {
+		return err
+	}
+	resolved.Package.ResolvedVersion = resolvedVersion
+	if normalizedLatestVersion, err := normalizePackageVersion(name, resolved.Package.LatestVersion); err == nil {
+		resolved.Package.LatestVersion = normalizedLatestVersion
+	}
+	if installed, ok := installedState.Get(name); ok {
+		if sameInstalledPackage(installed.Package, resolved.Package) {
+			fmt.Printf("Пакет %s уже установлен: %s\n", resolved.Package.Name, resolved.Package.ResolvedVersion)
+			return nil
+		}
+		printInstallTransition(installed.Package, resolved.Package)
+	}
+
+	if err := installResolvedPackage(&resolved.Package); err != nil {
+		return err
+	}
+
+	installedState.Put(resolved.Package)
+	if err := state.Save(installedState); err != nil {
+		return fmt.Errorf("пакет установлен, но локальное состояние не обновлено: %w", err)
+	}
+	return nil
 }
 
 func installResolvedPackage(pkg *api.ResolvedPackage) error {
@@ -133,7 +167,7 @@ func installResolvedPackage(pkg *api.ResolvedPackage) error {
 }
 
 func installLinuxCLIWrapperPackage(pkg *api.ResolvedPackage) error {
-	installRoot, err := resolveInstallRoot(pkg.Variant.InstallRoot, filepath.Join("$HOME", ".local", "share", "neuralv-shell"))
+	installRoot, err := resolveInstallRoot(pkg.Variant.InstallRoot, filepath.Join("$HOME", ".local", "share", pkg.Name))
 	if err != nil {
 		return err
 	}
@@ -143,7 +177,7 @@ func installLinuxCLIWrapperPackage(pkg *api.ResolvedPackage) error {
 
 	binaryName := strings.TrimSpace(pkg.Variant.BinaryName)
 	if binaryName == "" {
-		binaryName = "neuralv-shell"
+		binaryName = pkg.Name
 	}
 	target := filepath.Join(installRoot, binaryName)
 	step(2, 4, fmt.Sprintf("скачиваем %s", binaryName))
@@ -152,10 +186,12 @@ func installLinuxCLIWrapperPackage(pkg *api.ResolvedPackage) error {
 	}
 
 	hasDaemon := false
+	daemonBinaryName := ""
 	if daemonURL, ok := metadataString(pkg.Variant.Metadata, "daemonUrl"); ok && strings.TrimSpace(daemonURL) != "" {
 		hasDaemon = true
+		daemonBinaryName = daemonBinaryNameForPackage(pkg, daemonURL)
 		step(3, 4, "скачиваем daemon")
-		if err := downloadArtifactBinary(daemonURL, filepath.Join(installRoot, "neuralvd"), "neuralvd"); err != nil {
+		if err := downloadArtifactBinary(daemonURL, filepath.Join(installRoot, daemonBinaryName), daemonBinaryName); err != nil {
 			return err
 		}
 	} else {
@@ -184,13 +220,13 @@ func installLinuxCLIWrapperPackage(pkg *api.ResolvedPackage) error {
 	fmt.Printf("Путь: %s\n", installRoot)
 	printPathHint(wrapperDir)
 	if hasDaemon {
-		fmt.Printf("Daemon: %s\n", filepath.Join(installRoot, "neuralvd"))
+		fmt.Printf("Daemon: %s\n", filepath.Join(installRoot, daemonBinaryName))
 	}
 	return nil
 }
 
 func installLinuxPortableTarPackage(pkg *api.ResolvedPackage) error {
-	installRoot, err := resolveInstallRoot(pkg.Variant.InstallRoot, filepath.Join("$HOME", ".local", "opt", pkg.Title))
+	installRoot, err := resolveInstallRoot(pkg.Variant.InstallRoot, filepath.Join("$HOME", ".local", "opt", pkg.Name))
 	if err != nil {
 		return err
 	}
@@ -205,13 +241,13 @@ func installLinuxPortableTarPackage(pkg *api.ResolvedPackage) error {
 	}
 	defer os.RemoveAll(tmpDir)
 
-	step(2, 4, "скачиваем архив")
+	step(2, 5, "скачиваем архив")
 	archivePath := filepath.Join(tmpDir, "package.tar.gz")
 	if err := downloadRawFile(pkg.Variant.DownloadURL, archivePath); err != nil {
 		return err
 	}
 
-	step(3, 4, "распаковываем пакет")
+	step(3, 5, "распаковываем пакет")
 	extractDir := filepath.Join(tmpDir, "extract")
 	if err := os.MkdirAll(extractDir, 0o755); err != nil {
 		return err
@@ -220,8 +256,13 @@ func installLinuxPortableTarPackage(pkg *api.ResolvedPackage) error {
 		return err
 	}
 
-	step(4, 4, "обновляем директорию")
+	step(4, 5, "обновляем директорию")
 	if err := replaceExtractedDirectory(extractDir, installRoot); err != nil {
+		return err
+	}
+
+	step(5, 5, "обновляем ярлыки")
+	if err := ensureLinuxDesktopIntegration(pkg, installRoot); err != nil {
 		return err
 	}
 
@@ -231,7 +272,7 @@ func installLinuxPortableTarPackage(pkg *api.ResolvedPackage) error {
 }
 
 func installWindowsPortableZipPackage(pkg *api.ResolvedPackage) error {
-	installRoot, err := resolveInstallRoot(pkg.Variant.InstallRoot, `%LOCALAPPDATA%/NeuralV`)
+	installRoot, err := resolveInstallRoot(pkg.Variant.InstallRoot, filepath.Join(`%LOCALAPPDATA%`, pkg.Name))
 	if err != nil {
 		return err
 	}
@@ -246,13 +287,13 @@ func installWindowsPortableZipPackage(pkg *api.ResolvedPackage) error {
 	}
 	defer os.RemoveAll(tmpDir)
 
-	step(2, 4, "скачиваем архив")
+	step(2, 5, "скачиваем архив")
 	archivePath := filepath.Join(tmpDir, "package.zip")
 	if err := downloadRawFile(pkg.Variant.DownloadURL, archivePath); err != nil {
 		return err
 	}
 
-	step(3, 4, "распаковываем пакет")
+	step(3, 5, "распаковываем пакет")
 	extractDir := filepath.Join(tmpDir, "extract")
 	if err := os.MkdirAll(extractDir, 0o755); err != nil {
 		return err
@@ -261,8 +302,13 @@ func installWindowsPortableZipPackage(pkg *api.ResolvedPackage) error {
 		return err
 	}
 
-	step(4, 4, "обновляем директорию")
+	step(4, 5, "обновляем директорию")
 	if err := replaceExtractedDirectory(extractDir, installRoot); err != nil {
+		return err
+	}
+
+	step(5, 5, "обновляем ярлыки")
+	if err := ensureWindowsShortcuts(pkg, installRoot); err != nil {
 		return err
 	}
 
@@ -299,7 +345,7 @@ func installUnixBinaryPackage(pkg *api.ResolvedPackage) error {
 }
 
 func installWindowsSelfBinaryPackage(pkg *api.ResolvedPackage) error {
-	installRoot, err := resolveInstallRoot(pkg.Variant.InstallRoot, `%LOCALAPPDATA%/NV`)
+	installRoot, err := resolveInstallRoot(pkg.Variant.InstallRoot, filepath.Join(`%LOCALAPPDATA%`, pkg.Name))
 	if err != nil {
 		return err
 	}
@@ -337,6 +383,9 @@ func installWindowsSelfBinaryPackage(pkg *api.ResolvedPackage) error {
 		_ = os.Remove(stagePath)
 		return err
 	}
+	if err := ensureWindowsCmdWrapper(installRoot, binaryName); err != nil {
+		return err
+	}
 
 	fmt.Printf("Пакет %s установлен или обновлен до версии %s\n", pkg.Name, pkg.ResolvedVersion)
 	fmt.Printf("Путь: %s\n", target)
@@ -349,14 +398,33 @@ func uninstallPackage(client *api.Client, name string) error {
 		return errors.New("empty package name")
 	}
 
-	resolved, err := client.ResolvePackage(normalized, "latest", runtime.GOOS, "")
+	installedState, err := state.Load()
 	if err != nil {
-		return fmt.Errorf("реестр пакетов недоступен: %w", err)
+		return fmt.Errorf("не удалось открыть локальное состояние пакетов: %w", err)
 	}
-	if !resolved.Success && strings.TrimSpace(resolved.Error) != "" {
-		return errors.New(strings.TrimSpace(resolved.Error))
+
+	var pkg *api.ResolvedPackage
+	if installed, ok := installedState.Get(normalized); ok {
+		pkg = &installed.Package
+	} else {
+		resolved, err := client.ResolvePackage(normalized, "latest", runtime.GOOS, "")
+		if err != nil {
+			return fmt.Errorf("реестр пакетов недоступен: %w", err)
+		}
+		if !resolved.Success && strings.TrimSpace(resolved.Error) != "" {
+			return errors.New(strings.TrimSpace(resolved.Error))
+		}
+		pkg = &resolved.Package
 	}
-	return uninstallResolvedPackage(&resolved.Package)
+
+	if err := uninstallResolvedPackage(pkg); err != nil {
+		return err
+	}
+	installedState.Delete(normalized)
+	if err := state.Save(installedState); err != nil {
+		return fmt.Errorf("пакет удален, но локальное состояние не обновлено: %w", err)
+	}
+	return nil
 }
 
 func parsePackageSpec(spec string) (string, string, error) {
@@ -375,8 +443,12 @@ func parsePackageSpec(spec string) (string, string, error) {
 	if len(parts) == 2 && strings.TrimSpace(parts[1]) != "" {
 		version = strings.TrimSpace(parts[1])
 	}
-	if version != "latest" && !semverPattern.MatchString(version) {
-		return "", "", fmt.Errorf("некорректная версия %q: используй latest или semver 1.2.3", version)
+	if version != "latest" {
+		normalizedVersion, err := semver.Normalize(version)
+		if err != nil {
+			return "", "", fmt.Errorf("некорректная версия %q: используй latest или semver 2.0.0", version)
+		}
+		version = normalizedVersion
 	}
 	return name, version, nil
 }
@@ -396,11 +468,21 @@ func resolveInstallRoot(configuredRoot, fallback string) (string, error) {
 	}
 
 	replacements := map[string]string{
-		"$HOME":           home,
-		"%USERPROFILE%":   home,
-		"%LOCALAPPDATA%":  os.Getenv("LOCALAPPDATA"),
-		"%APPDATA%":       os.Getenv("APPDATA"),
+		"$HOME":         home,
+		"%USERPROFILE%": home,
 	}
+	localAppData := os.Getenv("LOCALAPPDATA")
+	if localAppData == "" {
+		localAppData = filepath.Join(home, "AppData", "Local")
+	}
+	replacements["%LOCALAPPDATA%"] = localAppData
+
+	appData := os.Getenv("APPDATA")
+	if appData == "" {
+		appData = filepath.Join(home, "AppData", "Roaming")
+	}
+	replacements["%APPDATA%"] = appData
+
 	for token, value := range replacements {
 		if value == "" {
 			continue
@@ -421,6 +503,137 @@ func metadataString(metadata map[string]any, key string) (string, bool) {
 	}
 	text, ok := value.(string)
 	return text, ok
+}
+
+func resolveLauncherPath(pkg *api.ResolvedPackage, installRoot string, fallbacks ...string) string {
+	candidates := make([]string, 0, 2+len(fallbacks))
+	if launcher := strings.TrimSpace(pkg.Variant.LauncherPath); launcher != "" {
+		candidates = append(candidates, launcher)
+	}
+	if binaryName := strings.TrimSpace(pkg.Variant.BinaryName); binaryName != "" {
+		candidates = append(candidates, binaryName)
+	}
+	candidates = append(candidates, fallbacks...)
+	for _, candidate := range candidates {
+		if strings.TrimSpace(candidate) == "" {
+			continue
+		}
+		absolute := filepath.Join(installRoot, filepath.FromSlash(candidate))
+		if _, err := os.Stat(absolute); err == nil {
+			return absolute
+		}
+	}
+	return filepath.Join(installRoot, filepath.Base(strings.TrimSpace(pkg.Variant.LauncherPath)))
+}
+
+func ensureLinuxDesktopIntegration(pkg *api.ResolvedPackage, installRoot string) error {
+	launcher := resolveLauncherPath(pkg, installRoot, "bin/NeuralV", "NeuralV", pkg.Name)
+	if _, err := os.Stat(launcher); err != nil {
+		return fmt.Errorf("launcher не найден после установки: %s", launcher)
+	}
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+	applicationsDir := filepath.Join(home, ".local", "share", "applications")
+	desktopDir := filepath.Join(home, "Desktop")
+	if err := os.MkdirAll(applicationsDir, 0o755); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(desktopDir, 0o755); err != nil {
+		return err
+	}
+
+	entryName := pkg.Title
+	if strings.TrimSpace(entryName) == "" {
+		entryName = pkg.Name
+	}
+	entryID := strings.ToLower(strings.ReplaceAll(strings.TrimSpace(pkg.Name), " ", "-"))
+	desktopEntry := fmt.Sprintf("[Desktop Entry]\nType=Application\nVersion=1.0\nName=%s\nExec=%q\nPath=%q\nTerminal=false\nCategories=Utility;Security;\nStartupNotify=true\n", entryName, launcher, installRoot)
+
+	menuPath := filepath.Join(applicationsDir, entryID+".desktop")
+	if err := os.WriteFile(menuPath, []byte(desktopEntry), 0o755); err != nil {
+		return err
+	}
+
+	desktopPath := filepath.Join(desktopDir, entryName+".desktop")
+	if err := os.WriteFile(desktopPath, []byte(desktopEntry), 0o755); err != nil {
+		return err
+	}
+	return nil
+}
+
+func ensureWindowsShortcuts(pkg *api.ResolvedPackage, installRoot string) error {
+	launcher := resolveLauncherPath(pkg, installRoot, "NeuralV.exe")
+	if _, err := os.Stat(launcher); err != nil {
+		return fmt.Errorf("launcher не найден после установки: %s", launcher)
+	}
+
+	appData := os.Getenv("APPDATA")
+	if appData == "" {
+		return errors.New("APPDATA не задан")
+	}
+	userProfile := os.Getenv("USERPROFILE")
+	if userProfile == "" {
+		return errors.New("USERPROFILE не задан")
+	}
+	startMenu := filepath.Join(appData, "Microsoft", "Windows", "Start Menu", "Programs", "NeuralV.lnk")
+	desktop := filepath.Join(userProfile, "Desktop", "NeuralV.lnk")
+	return createWindowsShortcuts(launcher, installRoot, startMenu, desktop)
+}
+
+func ensureWindowsCmdWrapper(installRoot, binaryName string) error {
+	target := filepath.Join(installRoot, binaryName)
+	wrapper := filepath.Join(installRoot, "nv.cmd")
+	script := fmt.Sprintf("@echo off\r\n\"%s\" %%*\r\n", target)
+	return os.WriteFile(wrapper, []byte(script), 0o755)
+}
+
+func createWindowsShortcuts(target, workingDir string, shortcuts ...string) error {
+	for _, item := range shortcuts {
+		if err := os.MkdirAll(filepath.Dir(item), 0o755); err != nil {
+			return err
+		}
+	}
+	scriptLines := []string{
+		"$WshShell = New-Object -ComObject WScript.Shell",
+		fmt.Sprintf("$target = '%s'", escapePowerShellString(target)),
+		fmt.Sprintf("$workingDir = '%s'", escapePowerShellString(workingDir)),
+	}
+	for index, shortcut := range shortcuts {
+		scriptLines = append(scriptLines,
+			fmt.Sprintf("$shortcutPath%d = '%s'", index, escapePowerShellString(shortcut)),
+			fmt.Sprintf("$shortcut%d = $WshShell.CreateShortcut($shortcutPath%d)", index, index),
+			fmt.Sprintf("$shortcut%d.TargetPath = $target", index),
+			fmt.Sprintf("$shortcut%d.WorkingDirectory = $workingDir", index),
+			fmt.Sprintf("$shortcut%d.Save()", index),
+		)
+	}
+	return runPowerShellScript(strings.Join(scriptLines, "\n"))
+}
+
+func runPowerShellScript(script string) error {
+	encoded := base64.StdEncoding.EncodeToString(utf16LEBytes(script))
+	command := exec.Command("powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-EncodedCommand", encoded)
+	command.Stdout = os.Stdout
+	command.Stderr = os.Stderr
+	return command.Run()
+}
+
+func utf16LEBytes(text string) []byte {
+	encoded := make([]byte, 0, len(text)*2)
+	for _, r := range text {
+		if r > 0xFFFF {
+			r = '?'
+		}
+		encoded = append(encoded, byte(r), byte(r>>8))
+	}
+	return encoded
+}
+
+func escapePowerShellString(text string) string {
+	return strings.ReplaceAll(text, "'", "''")
 }
 
 func downloadRawFile(url, target string) error {
@@ -602,30 +815,19 @@ func printPathHint(installRoot string) {
 	fmt.Printf("PATH: добавь %s в PATH, если пакет не находится сразу.\n", installRoot)
 }
 
-func packageVersion(packageName, version string) (string, error) {
-	version = strings.TrimSpace(version)
-	if version == "" {
-		return "", fmt.Errorf("реестр пакета %s не содержит version", packageName)
-	}
-	if !semverPattern.MatchString(version) {
-		return "", fmt.Errorf("реестр пакета %s содержит некорректную версию %q", packageName, version)
-	}
-	return version, nil
-}
-
 func warnIfNVUpdateAvailable(args []string, client *api.Client) {
 	if shouldSkipNVUpdateCheck(args) {
 		return
 	}
-	if !semverPattern.MatchString(strings.TrimSpace(nvVersion)) {
+	if semver.Validate(strings.TrimSpace(nvVersion)) != nil {
 		return
 	}
 
-	latestVersion, err := latestNVVersion(client)
+	latestVersion, err := latestPackageVersion(client, "nv", runtime.GOOS)
 	if err != nil {
 		return
 	}
-	if compareSemver(latestVersion, nvVersion) <= 0 {
+	if semver.Compare(latestVersion, nvVersion) <= 0 {
 		return
 	}
 
@@ -646,21 +848,31 @@ func shouldSkipNVUpdateCheck(args []string) bool {
 	return name == "nv"
 }
 
-func latestNVVersion(client *api.Client) (string, error) {
-	resolved, err := client.ResolvePackage("nv", "latest", runtime.GOOS, "")
+func latestPackageVersion(client *api.Client, packageName, goos string) (string, error) {
+	details, err := client.PackageDetails(packageName, goos)
+	if err == nil && details != nil {
+		if !details.Success && strings.TrimSpace(details.Error) != "" {
+			return "", errors.New(strings.TrimSpace(details.Error))
+		}
+		if latest, err := normalizePackageVersion(packageName, details.Package.LatestVersion); err == nil {
+			return latest, nil
+		}
+	}
+
+	resolved, err := client.ResolvePackage(packageName, "latest", goos, "")
 	if err != nil {
 		return "", err
 	}
 	if !resolved.Success && strings.TrimSpace(resolved.Error) != "" {
 		return "", errors.New(strings.TrimSpace(resolved.Error))
 	}
-	return packageVersion("nv", resolved.Package.ResolvedVersion)
+	return normalizePackageVersion(packageName, resolved.Package.ResolvedVersion)
 }
 
 func uninstallResolvedPackage(pkg *api.ResolvedPackage) error {
 	switch pkg.Variant.UninstallStrategy {
 	case "windows-remove-dir":
-		root, err := resolveInstallRoot(pkg.Variant.InstallRoot, `%LOCALAPPDATA%/NeuralV`)
+		root, err := resolveInstallRoot(pkg.Variant.InstallRoot, filepath.Join(`%LOCALAPPDATA%`, pkg.Name))
 		if err != nil {
 			return err
 		}
@@ -670,7 +882,7 @@ func uninstallResolvedPackage(pkg *api.ResolvedPackage) error {
 		fmt.Printf("Пакет %s удален из %s\n", pkg.Name, root)
 		return nil
 	case "linux-remove-dir":
-		root, err := resolveInstallRoot(pkg.Variant.InstallRoot, filepath.Join("$HOME", ".local", "opt", pkg.Title))
+		root, err := resolveInstallRoot(pkg.Variant.InstallRoot, filepath.Join("$HOME", ".local", "opt", pkg.Name))
 		if err != nil {
 			return err
 		}
@@ -680,7 +892,7 @@ func uninstallResolvedPackage(pkg *api.ResolvedPackage) error {
 		fmt.Printf("Пакет %s удален из %s\n", pkg.Name, root)
 		return nil
 	case "linux-cli-wrapper-remove":
-		root, err := resolveInstallRoot(pkg.Variant.InstallRoot, filepath.Join("$HOME", ".local", "share", "neuralv-shell"))
+		root, err := resolveInstallRoot(pkg.Variant.InstallRoot, filepath.Join("$HOME", ".local", "share", pkg.Name))
 		if err != nil {
 			return err
 		}
@@ -772,57 +984,6 @@ func replaceExtractedDirectory(extractDir, installRoot string) error {
 	return os.Rename(entryRoot, installRoot)
 }
 
-func parseSemver(raw string) (semver, error) {
-	if !semverPattern.MatchString(raw) {
-		return semver{}, fmt.Errorf("invalid semver %q", raw)
-	}
-	parts := strings.Split(raw, ".")
-	major, err := strconv.Atoi(parts[0])
-	if err != nil {
-		return semver{}, err
-	}
-	minor, err := strconv.Atoi(parts[1])
-	if err != nil {
-		return semver{}, err
-	}
-	patch, err := strconv.Atoi(parts[2])
-	if err != nil {
-		return semver{}, err
-	}
-	return semver{major: major, minor: minor, patch: patch}, nil
-}
-
-func compareSemver(left, right string) int {
-	leftVersion, err := parseSemver(left)
-	if err != nil {
-		return 0
-	}
-	rightVersion, err := parseSemver(right)
-	if err != nil {
-		return 0
-	}
-
-	switch {
-	case leftVersion.major != rightVersion.major:
-		return compareInts(leftVersion.major, rightVersion.major)
-	case leftVersion.minor != rightVersion.minor:
-		return compareInts(leftVersion.minor, rightVersion.minor)
-	default:
-		return compareInts(leftVersion.patch, rightVersion.patch)
-	}
-}
-
-func compareInts(left, right int) int {
-	switch {
-	case left < right:
-		return -1
-	case left > right:
-		return 1
-	default:
-		return 0
-	}
-}
-
 func runningCurrentExecutable(target string) bool {
 	currentExecutable, err := os.Executable()
 	if err != nil {
@@ -850,4 +1011,75 @@ func scheduleWindowsSelfReplace(stagePath, targetPath, scriptPath string) error 
 	command.Stdout = io.Discard
 	command.Stderr = io.Discard
 	return command.Start()
+}
+
+func normalizePackageVersion(packageName, version string) (string, error) {
+	trimmed := strings.TrimSpace(version)
+	if trimmed == "" {
+		return "", fmt.Errorf("реестр пакета %s не содержит version", packageName)
+	}
+	normalized, err := semver.Normalize(trimmed)
+	if err != nil {
+		return "", fmt.Errorf("реестр пакета %s содержит некорректную версию %q", packageName, version)
+	}
+	return normalized, nil
+}
+
+func sameInstalledPackage(current, next api.ResolvedPackage) bool {
+	return strings.EqualFold(current.Name, next.Name) &&
+		current.ResolvedVersion == next.ResolvedVersion &&
+		current.Variant.ID == next.Variant.ID
+}
+
+func printInstallTransition(current, next api.ResolvedPackage) {
+	switch semver.Compare(next.ResolvedVersion, current.ResolvedVersion) {
+	case 1:
+		fmt.Printf("Обновляем %s: %s -> %s\n", next.Name, current.ResolvedVersion, next.ResolvedVersion)
+	case -1:
+		fmt.Printf("Меняем версию %s: %s -> %s\n", next.Name, current.ResolvedVersion, next.ResolvedVersion)
+	default:
+		fmt.Printf("Переустанавливаем %s %s\n", next.Name, next.ResolvedVersion)
+	}
+}
+
+func daemonBinaryNameForPackage(pkg *api.ResolvedPackage, daemonURL string) string {
+	if name, ok := metadataString(pkg.Variant.Metadata, "daemonBinaryName"); ok && strings.TrimSpace(name) != "" {
+		return strings.TrimSpace(name)
+	}
+	if inferred := inferredBinaryName(daemonURL); inferred != "" {
+		return inferred
+	}
+	return pkg.Name + "d"
+}
+
+func inferredBinaryName(downloadURL string) string {
+	parsed, err := url.Parse(strings.TrimSpace(downloadURL))
+	if err != nil {
+		return ""
+	}
+
+	name := path.Base(parsed.Path)
+	switch {
+	case strings.HasSuffix(name, ".tar.gz"):
+		name = strings.TrimSuffix(name, ".tar.gz")
+	case strings.HasSuffix(name, ".tgz"):
+		name = strings.TrimSuffix(name, ".tgz")
+	case strings.HasSuffix(name, ".zip"):
+		name = strings.TrimSuffix(name, ".zip")
+	case strings.HasSuffix(name, ".exe"):
+		name = strings.TrimSuffix(name, ".exe")
+	}
+
+	for _, suffix := range []string{"-linux", "-windows", "-darwin"} {
+		marker := suffix + "-"
+		index := strings.LastIndex(name, marker)
+		if index <= 0 {
+			continue
+		}
+		versionPart := name[index+len(marker):]
+		if semver.Validate(versionPart) == nil {
+			return name[:index]
+		}
+	}
+	return name
 }

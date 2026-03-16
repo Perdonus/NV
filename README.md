@@ -2,16 +2,14 @@
 
 `nv` — пакетный менеджер для пакетов NeuralV.
 
-Доступные пакеты:
-
-- `neuralv`
-- `nv`
-
 Команды:
 
 ```text
 nv install <package[@version]>
 nv uninstall <package>
+nv list
+nv search [query]
+nv info <package>
 nv version
 nv help
 ```
@@ -19,9 +17,11 @@ nv help
 Версии пакетов:
 
 - `latest`
-- строгий semver `1.2.3`
+- semver 2.0.0
 
-`install` используется и для первой установки, и для обновления уже установленного пакета. Сам `nv` обновляется через `nv install nv@latest`.
+`install` используется и для первой установки, и для обновления уже установленного пакета.
+Доступные пакеты и метаданные берутся из серверного реестра.
+Сам `nv` обновляется через `nv install nv@latest`.
 
 Установка `nv`:
 

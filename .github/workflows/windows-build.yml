@@ -95,6 +95,7 @@ jobs:
               fh.write(f"Repository: {os.environ['GITHUB_REPOSITORY']}\nVersion: {os.environ['SEMVER']}\nCommit: {os.environ['GITHUB_SHA']}\nWorkflow Run: {os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}\nBuilt At: {generated_at}\n")
           PY
           cp install/nv.ps1 publish/nv.ps1
+          cp install/nv.cmd publish/nv.cmd
           tmpdir="$(mktemp -d)"
           cp -R publish/. "$tmpdir/"
           cd "$tmpdir"

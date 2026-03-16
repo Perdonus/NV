@@ -10,11 +10,11 @@
           "id": "windows-gui",
           "label": "Windows GUI",
           "os": "windows",
-          "default": true,
+          "is_default": true,
           "install_strategy": "windows-portable-zip",
           "uninstall_strategy": "windows-remove-dir",
           "install_root": "%LOCALAPPDATA%/NeuralV",
-          "launcher_path": "bin/NeuralV.exe",
+          "launcher_path": "NeuralV.exe",
           "install_command": "winget install --id NeuralV.NeuralV -e",
           "update_command": "%LOCALAPPDATA%\\NV\\nv.exe install neuralv@latest",
           "update_policy": "startup-auto",
@@ -43,7 +43,7 @@
           "id": "linux-gui",
           "label": "Linux GUI",
           "os": "linux",
-          "default": false,
+          "is_default": false,
           "install_strategy": "linux-portable-tar",
           "uninstall_strategy": "linux-remove-dir",
           "install_root": "$HOME/.local/opt/NeuralV",
@@ -130,7 +130,7 @@
           "id": "linux-cli",
           "label": "Linux CLI",
           "os": "linux",
-          "default": true,
+          "is_default": true,
           "install_strategy": "linux-cli-wrapper",
           "uninstall_strategy": "linux-cli-wrapper-remove",
           "install_root": "$HOME/.local/share/neuralv-shell",
@@ -148,7 +148,8 @@
           },
           "metadata": {
             "notifyOnStart": true,
-            "updateChannel": "main"
+            "updateChannel": "main",
+            "daemonBinaryName": "neuralvd"
           }
         }
       ]
@@ -163,7 +164,7 @@
           "id": "nv-linux",
           "label": "NV Linux",
           "os": "linux",
-          "default": true,
+          "is_default": true,
           "install_strategy": "unix-self-binary",
           "install_root": "$HOME/.local/bin",
           "binary_name": "nv",
@@ -185,7 +186,7 @@
           "id": "nv-windows",
           "label": "NV Windows",
           "os": "windows",
-          "default": true,
+          "is_default": true,
           "install_strategy": "windows-self-binary",
           "install_root": "%LOCALAPPDATA%/NV",
           "binary_name": "nv.exe",
