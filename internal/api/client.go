@@ -5,36 +5,74 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
 
-const (
-	defaultBaseURL        = "https://sosiskibot.ru/basedata"
-	nvLinuxManifestURL   = "https://raw.githubusercontent.com/Perdonus/NV/linux-builds/manifest.json"
-	nvWindowsManifestURL = "https://raw.githubusercontent.com/Perdonus/NV/windows-builds/manifest.json"
-)
+const defaultBaseURL = "https://sosiskibot.ru/basedata"
 
 type Client struct {
 	baseURL string
 	http    *http.Client
 }
 
-type ManifestResponse struct {
-	Success   bool               `json:"success"`
-	Artifacts []ManifestArtifact `json:"artifacts"`
-	Error     string             `json:"error"`
+type PackageCatalogResponse struct {
+	Success  bool            `json:"success"`
+	Packages []PackageRecord `json:"packages"`
+	Error    string          `json:"error"`
 }
 
-type ManifestArtifact struct {
-	Platform       string         `json:"platform"`
-	Channel        string         `json:"channel"`
-	Version        string         `json:"version"`
-	SHA256         string         `json:"sha256"`
-	DownloadURL    string         `json:"download_url"`
-	InstallCommand string         `json:"install_command"`
-	FileName       string         `json:"file_name"`
-	Metadata       map[string]any `json:"metadata"`
+type PackageDetailResponse struct {
+	Success bool          `json:"success"`
+	Package PackageRecord `json:"package"`
+	Error   string        `json:"error"`
+}
+
+type PackageResolveResponse struct {
+	Success bool            `json:"success"`
+	Package ResolvedPackage `json:"package"`
+	Error   string          `json:"error"`
+}
+
+type PackageRecord struct {
+	Name          string           `json:"name"`
+	Title         string           `json:"title"`
+	Description   string           `json:"description"`
+	Homepage      string           `json:"homepage"`
+	LatestVersion string           `json:"latest_version"`
+	Variants      []PackageVariant `json:"variants"`
+}
+
+type PackageVariant struct {
+	ID                string         `json:"id"`
+	Label             string         `json:"label"`
+	OS                string         `json:"os"`
+	IsDefault         bool           `json:"is_default"`
+	Version           string         `json:"version"`
+	Channel           string         `json:"channel"`
+	FileName          string         `json:"file_name"`
+	DownloadURL       string         `json:"download_url"`
+	InstallCommand    string         `json:"install_command"`
+	SHA256            string         `json:"sha256"`
+	InstallStrategy   string         `json:"install_strategy"`
+	UninstallStrategy string         `json:"uninstall_strategy"`
+	InstallRoot       string         `json:"install_root"`
+	BinaryName        string         `json:"binary_name"`
+	WrapperName       string         `json:"wrapper_name"`
+	LauncherPath      string         `json:"launcher_path"`
+	Notes             []string       `json:"notes"`
+	Metadata          map[string]any `json:"metadata"`
+}
+
+type ResolvedPackage struct {
+	Name            string         `json:"name"`
+	Title           string         `json:"title"`
+	Description     string         `json:"description"`
+	Homepage        string         `json:"homepage"`
+	LatestVersion   string         `json:"latest_version"`
+	ResolvedVersion string         `json:"resolved_version"`
+	Variant         PackageVariant `json:"variant"`
 }
 
 func NewClient(baseURL string) *Client {
@@ -48,20 +86,43 @@ func NewClient(baseURL string) *Client {
 	}
 }
 
-func (c *Client) ReleaseManifest() (*ManifestResponse, error) {
-	return c.manifestFromURL(c.baseURL + "/api/releases/manifest")
-}
-
-func (c *Client) NVManifest(goos string) (*ManifestResponse, error) {
-	manifestURL, err := nvManifestURL(goos)
-	if err != nil {
-		return nil, err
+func (c *Client) ListPackages(goos string) (*PackageCatalogResponse, error) {
+	query := url.Values{}
+	if normalized := normalizeOS(goos); normalized != "" {
+		query.Set("os", normalized)
 	}
-	return c.manifestFromURL(manifestURL)
+	return getJSON[PackageCatalogResponse](c, "/api/packages", query)
 }
 
-func (c *Client) manifestFromURL(url string) (*ManifestResponse, error) {
-	resp, err := c.http.Get(url)
+func (c *Client) PackageDetails(name, goos string) (*PackageDetailResponse, error) {
+	query := url.Values{}
+	if normalized := normalizeOS(goos); normalized != "" {
+		query.Set("os", normalized)
+	}
+	return getJSON[PackageDetailResponse](c, fmt.Sprintf("/api/packages/%s", url.PathEscape(strings.TrimSpace(name))), query)
+}
+
+func (c *Client) ResolvePackage(name, version, goos, variant string) (*PackageResolveResponse, error) {
+	query := url.Values{}
+	if normalized := normalizeOS(goos); normalized != "" {
+		query.Set("os", normalized)
+	}
+	if strings.TrimSpace(version) != "" {
+		query.Set("version", strings.TrimSpace(version))
+	}
+	if strings.TrimSpace(variant) != "" {
+		query.Set("variant", strings.TrimSpace(variant))
+	}
+	return getJSON[PackageResolveResponse](c, fmt.Sprintf("/api/packages/%s/resolve", url.PathEscape(strings.TrimSpace(name))), query)
+}
+
+func getJSON[T any](c *Client, route string, query url.Values) (*T, error) {
+	fullURL := c.baseURL + route
+	if query != nil && len(query) > 0 {
+		fullURL += "?" + query.Encode()
+	}
+
+	resp, err := c.http.Get(fullURL)
 	if err != nil {
 		return nil, err
 	}
@@ -75,33 +136,20 @@ func (c *Client) manifestFromURL(url string) (*ManifestResponse, error) {
 		return nil, fmt.Errorf("http %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 
-	var parsed ManifestResponse
+	var parsed T
 	if err := json.Unmarshal(body, &parsed); err != nil {
 		return nil, err
-	}
-	if !parsed.Success && strings.TrimSpace(parsed.Error) != "" {
-		return nil, fmt.Errorf(parsed.Error)
 	}
 	return &parsed, nil
 }
 
-func nvManifestURL(goos string) (string, error) {
+func normalizeOS(goos string) string {
 	switch strings.ToLower(strings.TrimSpace(goos)) {
-	case "linux":
-		return nvLinuxManifestURL, nil
-	case "windows":
-		return nvWindowsManifestURL, nil
+	case "windows", "linux":
+		return strings.ToLower(strings.TrimSpace(goos))
+	case "win32":
+		return "windows"
 	default:
-		return "", fmt.Errorf("manifest nv не поддерживает платформу %s", goos)
+		return strings.ToLower(strings.TrimSpace(goos))
 	}
-}
-
-func (m *ManifestResponse) Artifact(platform string) *ManifestArtifact {
-	needle := strings.ToLower(strings.TrimSpace(platform))
-	for index := range m.Artifacts {
-		if strings.ToLower(strings.TrimSpace(m.Artifacts[index].Platform)) == needle {
-			return &m.Artifacts[index]
-		}
-	}
-	return nil
 }

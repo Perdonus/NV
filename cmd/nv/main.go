@@ -26,21 +26,7 @@ const defaultBaseURL = "https://sosiskibot.ru/basedata"
 var (
 	nvVersion     = "dev"
 	semverPattern = regexp.MustCompile(`^\d+\.\d+\.\d+$`)
-	packageRegistry = map[string]packageDefinition{
-		"neuralv": {
-			install:   installNeuralVPackage,
-			uninstall: uninstallNeuralVPackage,
-		},
-		"nv": {
-			install: installNVPackage,
-		},
-	}
 )
-
-type packageDefinition struct {
-	install   func(client *api.Client, version string) error
-	uninstall func() error
-}
 
 type semver struct {
 	major int
@@ -88,7 +74,7 @@ func handle(args []string, client *api.Client) error {
 		if len(args) < 2 {
 			return errors.New("не хватает имени пакета: uninstall <package>")
 		}
-		return uninstallPackage(args[1])
+		return uninstallPackage(client, args[1])
 	default:
 		printHelp()
 		return fmt.Errorf("неизвестная команда: %s", args[0])
@@ -115,64 +101,39 @@ func installPackage(client *api.Client, spec string) error {
 		return err
 	}
 
-	definition, ok := packageRegistry[name]
-	if !ok {
-		return fmt.Errorf("неизвестный пакет: %s", name)
+	step(1, 3, fmt.Sprintf("получаем пакет %s", name))
+	resolved, err := client.ResolvePackage(name, version, runtime.GOOS, "")
+	if err != nil {
+		return fmt.Errorf("реестр пакетов недоступен: %w", err)
 	}
-	if definition.install == nil {
-		return fmt.Errorf("пакет %s не поддерживает install", name)
+	if !resolved.Success && strings.TrimSpace(resolved.Error) != "" {
+		return errors.New(strings.TrimSpace(resolved.Error))
 	}
-	return definition.install(client, version)
+	if strings.TrimSpace(resolved.Package.Name) == "" || strings.TrimSpace(resolved.Package.Variant.DownloadURL) == "" {
+		return fmt.Errorf("реестр пакетов вернул неполный пакет %s", name)
+	}
+	return installResolvedPackage(&resolved.Package)
 }
 
-func installNeuralVPackage(client *api.Client, requestedVersion string) error {
-	step(1, 4, "читаем manifest пакета neuralv")
-	manifest, err := client.ReleaseManifest()
-	if err != nil {
-		return fmt.Errorf("manifest пакета neuralv недоступен: %w", err)
+func installResolvedPackage(pkg *api.ResolvedPackage) error {
+	switch pkg.Variant.InstallStrategy {
+	case "linux-cli-wrapper":
+		return installLinuxCLIWrapperPackage(pkg)
+	case "linux-portable-tar":
+		return installLinuxPortableTarPackage(pkg)
+	case "windows-portable-zip":
+		return installWindowsPortableZipPackage(pkg)
+	case "unix-self-binary":
+		return installUnixBinaryPackage(pkg)
+	case "windows-self-binary":
+		return installWindowsSelfBinaryPackage(pkg)
+	default:
+		return fmt.Errorf("пакет %s использует неподдерживаемую install strategy %q", pkg.Name, pkg.Variant.InstallStrategy)
 	}
-
-	artifact, err := neuralVArtifactForCurrentPlatform(manifest)
-	if err != nil {
-		return err
-	}
-
-	version, err := matchRequestedVersion("neuralv", requestedVersion, artifact)
-	if err != nil {
-		return err
-	}
-
-	if runtime.GOOS == "windows" {
-		return installNeuralVWindowsPackage(artifact, version)
-	}
-	return installNeuralVUnixPackage(artifact, version)
 }
 
-func installNVPackage(client *api.Client, requestedVersion string) error {
-	step(1, 3, "читаем manifest пакета nv")
-	manifest, err := client.NVManifest(runtime.GOOS)
-	if err != nil {
-		return fmt.Errorf("manifest пакета nv недоступен: %w", err)
-	}
-
-	artifact, err := nvArtifactForCurrentPlatform(manifest)
-	if err != nil {
-		return err
-	}
-
-	version, err := matchRequestedVersion("nv", requestedVersion, artifact)
-	if err != nil {
-		return err
-	}
-
-	if runtime.GOOS == "windows" {
-		return installNVWindowsPackage(artifact, version)
-	}
-	return installNVUnixPackage(artifact, version)
-}
-
-func installNeuralVUnixPackage(artifact *api.ManifestArtifact, version string) error {
-	installRoot, err := defaultLinuxInstallRoot()
+func installLinuxCLIWrapperPackage(pkg *api.ResolvedPackage) error {
+	installRoot, err := resolveInstallRoot(pkg.Variant.InstallRoot, filepath.Join("$HOME", ".local", "share", "neuralv-shell"))
 	if err != nil {
 		return err
 	}
@@ -180,75 +141,138 @@ func installNeuralVUnixPackage(artifact *api.ManifestArtifact, version string) e
 		return err
 	}
 
-	shellTarget := filepath.Join(installRoot, "neuralv-shell")
-	step(2, 4, "скачиваем neuralv-shell")
-	if err := downloadArtifactBinary(artifact.DownloadURL, shellTarget, "neuralv-shell"); err != nil {
+	binaryName := strings.TrimSpace(pkg.Variant.BinaryName)
+	if binaryName == "" {
+		binaryName = "neuralv-shell"
+	}
+	target := filepath.Join(installRoot, binaryName)
+	step(2, 4, fmt.Sprintf("скачиваем %s", binaryName))
+	if err := downloadArtifactBinary(pkg.Variant.DownloadURL, target, binaryName); err != nil {
 		return err
 	}
 
 	hasDaemon := false
-	if daemonURL, ok := metadataString(artifact.Metadata, "daemonUrl"); ok && strings.TrimSpace(daemonURL) != "" {
+	if daemonURL, ok := metadataString(pkg.Variant.Metadata, "daemonUrl"); ok && strings.TrimSpace(daemonURL) != "" {
 		hasDaemon = true
-		step(3, 4, "скачиваем neuralvd")
-		daemonTarget := filepath.Join(installRoot, "neuralvd")
-		if err := downloadArtifactBinary(daemonURL, daemonTarget, "neuralvd"); err != nil {
+		step(3, 4, "скачиваем daemon")
+		if err := downloadArtifactBinary(daemonURL, filepath.Join(installRoot, "neuralvd"), "neuralvd"); err != nil {
 			return err
 		}
 	} else {
-		step(3, 4, "daemon пока не опубликован, пропускаем")
+		step(3, 4, "daemon не опубликован, пропускаем")
 	}
 
+	wrapperName := strings.TrimSpace(pkg.Variant.WrapperName)
+	if wrapperName == "" {
+		wrapperName = pkg.Name
+	}
+	wrapperDir, err := resolveInstallRoot("$HOME/.local/bin", filepath.Join("$HOME", ".local", "bin"))
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(wrapperDir, 0o755); err != nil {
+		return err
+	}
 	step(4, 4, "обновляем launcher")
-	wrapper := filepath.Join(installRoot, "neuralv")
-	wrapperBody := fmt.Sprintf("#!/usr/bin/env sh\nexec %q \"$@\"\n", shellTarget)
+	wrapper := filepath.Join(wrapperDir, wrapperName)
+	wrapperBody := fmt.Sprintf("#!/usr/bin/env sh\nexec %q \"$@\"\n", target)
 	if err := writeExecutableFile(wrapper, []byte(wrapperBody)); err != nil {
 		return err
 	}
 
-	fmt.Printf("\nПакет neuralv установлен или обновлен до версии %s\n", version)
+	fmt.Printf("Пакет %s установлен или обновлен до версии %s\n", pkg.Name, pkg.ResolvedVersion)
 	fmt.Printf("Путь: %s\n", installRoot)
+	printPathHint(wrapperDir)
 	if hasDaemon {
 		fmt.Printf("Daemon: %s\n", filepath.Join(installRoot, "neuralvd"))
 	}
-	printPathHint(installRoot)
 	return nil
 }
 
-func installNeuralVWindowsPackage(artifact *api.ManifestArtifact, version string) error {
-	home, err := os.UserHomeDir()
+func installLinuxPortableTarPackage(pkg *api.ResolvedPackage) error {
+	installRoot, err := resolveInstallRoot(pkg.Variant.InstallRoot, filepath.Join("$HOME", ".local", "opt", pkg.Title))
 	if err != nil {
 		return err
 	}
-	installRoot := filepath.Join(home, "AppData", "Local", "NeuralV")
-	if err := os.MkdirAll(installRoot, 0o755); err != nil {
+	parentDir := filepath.Dir(installRoot)
+	if err := os.MkdirAll(parentDir, 0o755); err != nil {
 		return err
 	}
 
-	tmpDir, err := os.MkdirTemp("", "nv-win-install-*")
+	tmpDir, err := os.MkdirTemp("", "nv-linux-gui-*")
 	if err != nil {
 		return err
 	}
 	defer os.RemoveAll(tmpDir)
 
-	step(2, 4, "скачиваем windows bundle")
-	archivePath := filepath.Join(tmpDir, "neuralv-windows.zip")
-	if err := downloadRawFile(artifact.DownloadURL, archivePath); err != nil {
+	step(2, 4, "скачиваем архив")
+	archivePath := filepath.Join(tmpDir, "package.tar.gz")
+	if err := downloadRawFile(pkg.Variant.DownloadURL, archivePath); err != nil {
 		return err
 	}
 
-	step(3, 4, "распаковываем bundle")
-	if err := extractZip(archivePath, installRoot); err != nil {
+	step(3, 4, "распаковываем пакет")
+	extractDir := filepath.Join(tmpDir, "extract")
+	if err := os.MkdirAll(extractDir, 0o755); err != nil {
+		return err
+	}
+	if err := extractTarArchive(archivePath, extractDir); err != nil {
 		return err
 	}
 
-	step(4, 4, "готово")
-	fmt.Printf("Пакет neuralv установлен или обновлен до версии %s\n", version)
+	step(4, 4, "обновляем директорию")
+	if err := replaceExtractedDirectory(extractDir, installRoot); err != nil {
+		return err
+	}
+
+	fmt.Printf("Пакет %s установлен или обновлен до версии %s\n", pkg.Name, pkg.ResolvedVersion)
 	fmt.Printf("Путь: %s\n", installRoot)
 	return nil
 }
 
-func installNVUnixPackage(artifact *api.ManifestArtifact, version string) error {
-	installRoot, err := defaultLinuxInstallRoot()
+func installWindowsPortableZipPackage(pkg *api.ResolvedPackage) error {
+	installRoot, err := resolveInstallRoot(pkg.Variant.InstallRoot, `%LOCALAPPDATA%/NeuralV`)
+	if err != nil {
+		return err
+	}
+	parentDir := filepath.Dir(installRoot)
+	if err := os.MkdirAll(parentDir, 0o755); err != nil {
+		return err
+	}
+
+	tmpDir, err := os.MkdirTemp("", "nv-win-package-*")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(tmpDir)
+
+	step(2, 4, "скачиваем архив")
+	archivePath := filepath.Join(tmpDir, "package.zip")
+	if err := downloadRawFile(pkg.Variant.DownloadURL, archivePath); err != nil {
+		return err
+	}
+
+	step(3, 4, "распаковываем пакет")
+	extractDir := filepath.Join(tmpDir, "extract")
+	if err := os.MkdirAll(extractDir, 0o755); err != nil {
+		return err
+	}
+	if err := extractZip(archivePath, extractDir); err != nil {
+		return err
+	}
+
+	step(4, 4, "обновляем директорию")
+	if err := replaceExtractedDirectory(extractDir, installRoot); err != nil {
+		return err
+	}
+
+	fmt.Printf("Пакет %s установлен или обновлен до версии %s\n", pkg.Name, pkg.ResolvedVersion)
+	fmt.Printf("Путь: %s\n", installRoot)
+	return nil
+}
+
+func installUnixBinaryPackage(pkg *api.ResolvedPackage) error {
+	installRoot, err := resolveInstallRoot(pkg.Variant.InstallRoot, "$HOME/.local/bin")
 	if err != nil {
 		return err
 	}
@@ -256,105 +280,83 @@ func installNVUnixPackage(artifact *api.ManifestArtifact, version string) error 
 		return err
 	}
 
-	target := filepath.Join(installRoot, "nv")
-	step(2, 3, "скачиваем и обновляем nv")
-	if err := downloadArtifactBinary(artifact.DownloadURL, target, "nv"); err != nil {
+	binaryName := strings.TrimSpace(pkg.Variant.BinaryName)
+	if binaryName == "" {
+		binaryName = pkg.Name
+	}
+	target := filepath.Join(installRoot, binaryName)
+
+	step(2, 3, fmt.Sprintf("скачиваем %s", binaryName))
+	if err := downloadArtifactBinary(pkg.Variant.DownloadURL, target, binaryName); err != nil {
 		return err
 	}
 
 	step(3, 3, "готово")
-	fmt.Printf("Пакет nv установлен или обновлен до версии %s\n", version)
+	fmt.Printf("Пакет %s установлен или обновлен до версии %s\n", pkg.Name, pkg.ResolvedVersion)
 	fmt.Printf("Путь: %s\n", target)
 	printPathHint(installRoot)
 	return nil
 }
 
-func installNVWindowsPackage(artifact *api.ManifestArtifact, version string) error {
-	home, err := os.UserHomeDir()
+func installWindowsSelfBinaryPackage(pkg *api.ResolvedPackage) error {
+	installRoot, err := resolveInstallRoot(pkg.Variant.InstallRoot, `%LOCALAPPDATA%/NV`)
 	if err != nil {
 		return err
 	}
-	installRoot := filepath.Join(home, "AppData", "Local", "NV")
 	if err := os.MkdirAll(installRoot, 0o755); err != nil {
 		return err
 	}
 
-	target := filepath.Join(installRoot, "nv.exe")
-	stagePath := filepath.Join(installRoot, "nv.next.exe")
+	binaryName := strings.TrimSpace(pkg.Variant.BinaryName)
+	if binaryName == "" {
+		binaryName = pkg.Name + ".exe"
+	}
+	target := filepath.Join(installRoot, binaryName)
+	stagePath := filepath.Join(installRoot, binaryName+".next")
 	scriptPath := filepath.Join(installRoot, "nv-update.cmd")
 	_ = os.Remove(stagePath)
 	_ = os.Remove(scriptPath)
 
-	step(2, 3, "скачиваем nv")
-	if err := downloadRawFile(artifact.DownloadURL, stagePath); err != nil {
+	step(2, 3, fmt.Sprintf("скачиваем %s", binaryName))
+	if err := downloadRawFile(pkg.Variant.DownloadURL, stagePath); err != nil {
 		return err
 	}
 
-	step(3, 3, "обновляем nv")
+	step(3, 3, "обновляем пакет")
 	if runningCurrentExecutable(target) {
 		if err := scheduleWindowsSelfReplace(stagePath, target, scriptPath); err != nil {
 			_ = os.Remove(stagePath)
 			return err
 		}
-		fmt.Printf("Пакет nv обновляется до версии %s\n", version)
+		fmt.Printf("Пакет %s обновляется до версии %s\n", pkg.Name, pkg.ResolvedVersion)
 		fmt.Printf("Путь: %s\n", target)
 		fmt.Println("Замена будет завершена после выхода текущего процесса.")
 		return nil
 	}
-
 	if err := replaceFile(stagePath, target); err != nil {
 		_ = os.Remove(stagePath)
 		return err
 	}
 
-	fmt.Printf("Пакет nv установлен или обновлен до версии %s\n", version)
+	fmt.Printf("Пакет %s установлен или обновлен до версии %s\n", pkg.Name, pkg.ResolvedVersion)
 	fmt.Printf("Путь: %s\n", target)
 	return nil
 }
 
-func uninstallPackage(name string) error {
+func uninstallPackage(client *api.Client, name string) error {
 	normalized := normalizePackageName(name)
 	if normalized == "" {
 		return errors.New("empty package name")
 	}
 
-	definition, ok := packageRegistry[normalized]
-	if !ok {
-		return fmt.Errorf("неизвестный пакет: %s", normalized)
+	resolved, err := client.ResolvePackage(normalized, "latest", runtime.GOOS, "")
+	if err != nil {
+		return fmt.Errorf("реестр пакетов недоступен: %w", err)
 	}
-	if definition.uninstall == nil {
-		return fmt.Errorf("пакет %s не поддерживает uninstall", normalized)
+	if !resolved.Success && strings.TrimSpace(resolved.Error) != "" {
+		return errors.New(strings.TrimSpace(resolved.Error))
 	}
-	return definition.uninstall()
-}
-
-func uninstallNeuralVPackage() error {
-	switch runtime.GOOS {
-	case "windows":
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return err
-		}
-		root := filepath.Join(home, "AppData", "Local", "NeuralV")
-		if err := os.RemoveAll(root); err != nil {
-			return err
-		}
-		fmt.Printf("Пакет neuralv удален из %s\n", root)
-	default:
-		installRoot, err := defaultLinuxInstallRoot()
-		if err != nil {
-			return err
-		}
-		for _, target := range []string{"neuralv", "neuralv-shell", "neuralvd"} {
-			path := filepath.Join(installRoot, target)
-			if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
-				return err
-			}
-		}
-		fmt.Printf("Пакет neuralv удален из %s\n", installRoot)
-	}
-
-	return nil
+	return uninstallResolvedPackage(&resolved.Package)
 }
 
 func parsePackageSpec(spec string) (string, string, error) {
@@ -383,12 +385,30 @@ func normalizePackageName(name string) string {
 	return strings.ToLower(strings.TrimSpace(name))
 }
 
-func defaultLinuxInstallRoot() (string, error) {
+func resolveInstallRoot(configuredRoot, fallback string) (string, error) {
+	root := strings.TrimSpace(configuredRoot)
+	if root == "" {
+		root = strings.TrimSpace(fallback)
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, ".local", "bin"), nil
+
+	replacements := map[string]string{
+		"$HOME":           home,
+		"%USERPROFILE%":   home,
+		"%LOCALAPPDATA%":  os.Getenv("LOCALAPPDATA"),
+		"%APPDATA%":       os.Getenv("APPDATA"),
+	}
+	for token, value := range replacements {
+		if value == "" {
+			continue
+		}
+		root = strings.ReplaceAll(root, token, value)
+	}
+
+	return filepath.Clean(root), nil
 }
 
 func metadataString(metadata map[string]any, key string) (string, bool) {
@@ -582,63 +602,13 @@ func printPathHint(installRoot string) {
 	fmt.Printf("PATH: добавь %s в PATH, если пакет не находится сразу.\n", installRoot)
 }
 
-func neuralVArtifactForCurrentPlatform(manifest *api.ManifestResponse) (*api.ManifestArtifact, error) {
-	platform := "shell"
-	missingArtifactErr := "linux shell-артефакт neuralv пока не опубликован"
-	if runtime.GOOS == "windows" {
-		platform = "windows"
-		missingArtifactErr = "windows-артефакт neuralv пока не опубликован"
-	}
-
-	artifact := manifest.Artifact(platform)
-	if artifact == nil || strings.TrimSpace(artifact.DownloadURL) == "" {
-		return nil, errors.New(missingArtifactErr)
-	}
-	return artifact, nil
-}
-
-func nvArtifactForCurrentPlatform(manifest *api.ManifestResponse) (*api.ManifestArtifact, error) {
-	platform, err := nvPlatform(runtime.GOOS)
-	if err != nil {
-		return nil, err
-	}
-
-	artifact := manifest.Artifact(platform)
-	if artifact == nil || strings.TrimSpace(artifact.DownloadURL) == "" {
-		return nil, fmt.Errorf("артефакт %s пока не опубликован", platform)
-	}
-	return artifact, nil
-}
-
-func nvPlatform(goos string) (string, error) {
-	switch goos {
-	case "linux":
-		return "nv-linux", nil
-	case "windows":
-		return "nv-windows", nil
-	default:
-		return "", fmt.Errorf("пакет nv не поддерживает платформу %s", goos)
-	}
-}
-
-func matchRequestedVersion(packageName, requestedVersion string, artifact *api.ManifestArtifact) (string, error) {
-	publishedVersion, err := artifactVersion(packageName, artifact)
-	if err != nil {
-		return "", err
-	}
-	if requestedVersion != "latest" && publishedVersion != requestedVersion {
-		return "", fmt.Errorf("запрошен %s@%s, но опубликована версия %s", packageName, requestedVersion, publishedVersion)
-	}
-	return publishedVersion, nil
-}
-
-func artifactVersion(packageName string, artifact *api.ManifestArtifact) (string, error) {
-	version := strings.TrimSpace(artifact.Version)
+func packageVersion(packageName, version string) (string, error) {
+	version = strings.TrimSpace(version)
 	if version == "" {
-		return "", fmt.Errorf("manifest пакета %s не содержит version", packageName)
+		return "", fmt.Errorf("реестр пакета %s не содержит version", packageName)
 	}
 	if !semverPattern.MatchString(version) {
-		return "", fmt.Errorf("manifest пакета %s содержит некорректную версию %q", packageName, version)
+		return "", fmt.Errorf("реестр пакета %s содержит некорректную версию %q", packageName, version)
 	}
 	return version, nil
 }
@@ -677,15 +647,129 @@ func shouldSkipNVUpdateCheck(args []string) bool {
 }
 
 func latestNVVersion(client *api.Client) (string, error) {
-	manifest, err := client.NVManifest(runtime.GOOS)
+	resolved, err := client.ResolvePackage("nv", "latest", runtime.GOOS, "")
 	if err != nil {
 		return "", err
 	}
-	artifact, err := nvArtifactForCurrentPlatform(manifest)
-	if err != nil {
-		return "", err
+	if !resolved.Success && strings.TrimSpace(resolved.Error) != "" {
+		return "", errors.New(strings.TrimSpace(resolved.Error))
 	}
-	return artifactVersion("nv", artifact)
+	return packageVersion("nv", resolved.Package.ResolvedVersion)
+}
+
+func uninstallResolvedPackage(pkg *api.ResolvedPackage) error {
+	switch pkg.Variant.UninstallStrategy {
+	case "windows-remove-dir":
+		root, err := resolveInstallRoot(pkg.Variant.InstallRoot, `%LOCALAPPDATA%/NeuralV`)
+		if err != nil {
+			return err
+		}
+		if err := os.RemoveAll(root); err != nil {
+			return err
+		}
+		fmt.Printf("Пакет %s удален из %s\n", pkg.Name, root)
+		return nil
+	case "linux-remove-dir":
+		root, err := resolveInstallRoot(pkg.Variant.InstallRoot, filepath.Join("$HOME", ".local", "opt", pkg.Title))
+		if err != nil {
+			return err
+		}
+		if err := os.RemoveAll(root); err != nil {
+			return err
+		}
+		fmt.Printf("Пакет %s удален из %s\n", pkg.Name, root)
+		return nil
+	case "linux-cli-wrapper-remove":
+		root, err := resolveInstallRoot(pkg.Variant.InstallRoot, filepath.Join("$HOME", ".local", "share", "neuralv-shell"))
+		if err != nil {
+			return err
+		}
+		if err := os.RemoveAll(root); err != nil {
+			return err
+		}
+		wrapperName := strings.TrimSpace(pkg.Variant.WrapperName)
+		if wrapperName == "" {
+			wrapperName = pkg.Name
+		}
+		wrapperDir, err := resolveInstallRoot("$HOME/.local/bin", filepath.Join("$HOME", ".local", "bin"))
+		if err != nil {
+			return err
+		}
+		if err := os.Remove(filepath.Join(wrapperDir, wrapperName)); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		fmt.Printf("Пакет %s удален из %s\n", pkg.Name, root)
+		return nil
+	default:
+		return fmt.Errorf("пакет %s не поддерживает uninstall", pkg.Name)
+	}
+}
+
+func extractTarArchive(archivePath, targetDir string) error {
+	file, err := os.Open(archivePath)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	gzipReader, err := gzip.NewReader(file)
+	if err != nil {
+		return err
+	}
+	defer gzipReader.Close()
+
+	tarReader := tar.NewReader(gzipReader)
+	for {
+		header, err := tarReader.Next()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return err
+		}
+		targetPath := filepath.Join(targetDir, header.Name)
+		switch header.Typeflag {
+		case tar.TypeDir:
+			if err := os.MkdirAll(targetPath, 0o755); err != nil {
+				return err
+			}
+		case tar.TypeReg:
+			if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
+				return err
+			}
+			mode := os.FileMode(header.Mode)
+			if mode == 0 {
+				mode = 0o755
+			}
+			file, err := os.OpenFile(targetPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)
+			if err != nil {
+				return err
+			}
+			if _, err := io.Copy(file, tarReader); err != nil {
+				file.Close()
+				return err
+			}
+			if err := file.Close(); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func replaceExtractedDirectory(extractDir, installRoot string) error {
+	entryRoot := extractDir
+	entries, err := os.ReadDir(extractDir)
+	if err == nil && len(entries) == 1 && entries[0].IsDir() {
+		entryRoot = filepath.Join(extractDir, entries[0].Name())
+	}
+	if err := os.RemoveAll(installRoot); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(installRoot), 0o755); err != nil {
+		return err
+	}
+	return os.Rename(entryRoot, installRoot)
 }
 
 func parseSemver(raw string) (semver, error) {
