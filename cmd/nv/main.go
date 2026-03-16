@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"io/fs"
 	"io"
 	"net/http"
 	"net/url"
@@ -16,6 +17,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/Perdonus/NV/internal/api"
@@ -1012,13 +1014,142 @@ func replaceExtractedDirectory(extractDir, installRoot string) error {
 	if err == nil && len(entries) == 1 && entries[0].IsDir() {
 		entryRoot = filepath.Join(extractDir, entries[0].Name())
 	}
-	if err := os.RemoveAll(installRoot); err != nil && !errors.Is(err, os.ErrNotExist) {
+
+	parentDir := filepath.Dir(installRoot)
+	if err := os.MkdirAll(parentDir, 0o755); err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(installRoot), 0o755); err != nil {
+
+	stageRoot, err := os.MkdirTemp(parentDir, "."+filepath.Base(installRoot)+".stage-*")
+	if err != nil {
 		return err
 	}
-	return os.Rename(entryRoot, installRoot)
+	_ = os.Remove(stageRoot)
+
+	if err := stageDirectoryForInstall(entryRoot, stageRoot); err != nil {
+		_ = os.RemoveAll(stageRoot)
+		return err
+	}
+
+	backupRoot := filepath.Join(parentDir, "."+filepath.Base(installRoot)+".backup-"+time.Now().UTC().Format("20060102150405.000000000"))
+	existing := false
+	if _, err := os.Stat(installRoot); err == nil {
+		existing = true
+		if err := os.Rename(installRoot, backupRoot); err != nil {
+			_ = os.RemoveAll(stageRoot)
+			return err
+		}
+	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+		_ = os.RemoveAll(stageRoot)
+		return err
+	}
+
+	if err := os.Rename(stageRoot, installRoot); err != nil {
+		if existing {
+			_ = os.Rename(backupRoot, installRoot)
+		}
+		_ = os.RemoveAll(stageRoot)
+		return err
+	}
+
+	if existing {
+		if err := os.RemoveAll(backupRoot); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func stageDirectoryForInstall(sourceRoot, stageRoot string) error {
+	if err := os.Rename(sourceRoot, stageRoot); err == nil {
+		return nil
+	} else if !isCrossDeviceRename(err) {
+		return err
+	}
+	return copyDirectoryTree(sourceRoot, stageRoot)
+}
+
+func isCrossDeviceRename(err error) bool {
+	return errors.Is(err, syscall.EXDEV)
+}
+
+func copyDirectoryTree(sourceRoot, targetRoot string) error {
+	if err := os.MkdirAll(targetRoot, 0o755); err != nil {
+		return err
+	}
+
+	return filepath.WalkDir(sourceRoot, func(current string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+
+		relative, err := filepath.Rel(sourceRoot, current)
+		if err != nil {
+			return err
+		}
+		targetPath := targetRoot
+		if relative != "." {
+			targetPath = filepath.Join(targetRoot, relative)
+		}
+
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+
+		switch {
+		case entry.IsDir():
+			return os.MkdirAll(targetPath, info.Mode().Perm())
+		case (info.Mode() & os.ModeSymlink) != 0:
+			linkTarget, err := os.Readlink(current)
+			if err != nil {
+				return err
+			}
+			if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
+				return err
+			}
+			return os.Symlink(linkTarget, targetPath)
+		default:
+			return copyFileSync(current, targetPath, info.Mode())
+		}
+	})
+}
+
+func copyFileSync(sourcePath, targetPath string, mode os.FileMode) error {
+	sourceFile, err := os.Open(sourcePath)
+	if err != nil {
+		return err
+	}
+	defer sourceFile.Close()
+
+	if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
+		return err
+	}
+
+	tempFile, err := os.CreateTemp(filepath.Dir(targetPath), ".nv-copy-*")
+	if err != nil {
+		return err
+	}
+	tempPath := tempFile.Name()
+	defer os.Remove(tempPath)
+
+	if err := tempFile.Chmod(mode.Perm()); err != nil {
+		tempFile.Close()
+		return err
+	}
+	if _, err := io.Copy(tempFile, sourceFile); err != nil {
+		tempFile.Close()
+		return err
+	}
+	if err := tempFile.Sync(); err != nil {
+		tempFile.Close()
+		return err
+	}
+	if err := tempFile.Close(); err != nil {
+		return err
+	}
+
+	return os.Rename(tempPath, targetPath)
 }
 
 func runningCurrentExecutable(target string) bool {
