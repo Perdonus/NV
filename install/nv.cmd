@@ -1,5 +1,4 @@
 @echo off
-setlocal
 set "REPO=Perdonus/NV"
 set "RAW_BASE=https://raw.githubusercontent.com/%REPO%/windows-builds"
 set "INSTALL_ROOT=%LOCALAPPDATA%\NV"
@@ -17,4 +16,16 @@ curl.exe -fsSL "%NV_URL%" -o "%TMP_TARGET%" || exit /b 1
 move /y "%TMP_TARGET%" "%TARGET%" >nul || exit /b 1
 > "%WRAPPER%" echo @echo off
 >> "%WRAPPER%" echo "%TARGET%" %%*
-echo Установлен или обновлен nv в %TARGET%
+powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+  "$entry='%INSTALL_ROOT%';" ^
+  "$userPath=[Environment]::GetEnvironmentVariable('Path','User');" ^
+  "$parts=@(); if ($userPath) { $parts=$userPath.Split(';',[System.StringSplitOptions]::RemoveEmptyEntries) };" ^
+  "$exists=$false; foreach ($part in $parts) { if ($part.TrimEnd('\') -ieq $entry.TrimEnd('\')) { $exists=$true; break } };" ^
+  "if (-not $exists) { [Environment]::SetEnvironmentVariable('Path', (($entry) + ';' + $userPath).Trim(';'),'User') }" || exit /b 1
+set "PATH=%INSTALL_ROOT%;%PATH%"
+"%TARGET%" -v > "%TEMP%\nv-version.txt" 2>&1 || (
+  type "%TEMP%\nv-version.txt"
+  exit /b 1
+)
+echo NV установлен: %TARGET%
+type "%TEMP%\nv-version.txt"

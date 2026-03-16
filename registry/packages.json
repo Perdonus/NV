@@ -15,7 +15,7 @@
           "uninstall_strategy": "windows-remove-dir",
           "install_root": "%LOCALAPPDATA%/NeuralV",
           "launcher_path": "NeuralV.exe",
-          "install_command": "winget install --id NeuralV.NeuralV -e",
+          "install_command": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"irm https://raw.githubusercontent.com/Perdonus/fatalerror/windows-builds/install/windows.ps1 | iex\"",
           "update_command": "%LOCALAPPDATA%\\NV\\nv.exe install neuralv@latest",
           "update_policy": "startup-auto",
           "auto_update": true,
@@ -29,12 +29,20 @@
             "updateChannel": "beta",
             "commands": {
               "powershell": {
-                "install": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"irm https://raw.githubusercontent.com/Perdonus/NV/windows-builds/nv.ps1 | iex; & (Join-Path $env:LOCALAPPDATA 'NV\\nv.exe') install neuralv@latest\"",
+                "install": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"irm https://raw.githubusercontent.com/Perdonus/fatalerror/windows-builds/install/windows.ps1 | iex\"",
                 "update": "& (Join-Path $env:LOCALAPPDATA 'NV\\nv.exe') install neuralv@latest"
               },
               "cmd": {
-                "install": "curl.exe -fsSL https://raw.githubusercontent.com/Perdonus/NV/windows-builds/nv.cmd -o \"%TEMP%\\nv-install.cmd\" && cmd /c \"%TEMP%\\nv-install.cmd\" && \"%LOCALAPPDATA%\\NV\\nv.exe\" install neuralv@latest",
+                "install": "curl.exe -fsSL https://raw.githubusercontent.com/Perdonus/fatalerror/windows-builds/install/windows.cmd -o \"%TEMP%\\neuralv-install.cmd\" && cmd /c \"%TEMP%\\neuralv-install.cmd\"",
                 "update": "\"%LOCALAPPDATA%\\NV\\nv.exe\" install neuralv@latest"
+              }
+            },
+            "shortcuts": {
+              "windows": {
+                "enabled": true,
+                "name": "NeuralV",
+                "start_menu": true,
+                "desktop": true
               }
             }
           }
@@ -60,6 +68,17 @@
           },
           "metadata": {
             "updateChannel": "main",
+            "shortcuts": {
+              "linux": {
+                "enabled": true,
+                "name": "NeuralV",
+                "applications": true,
+                "desktop": true,
+                "desktop_file_name": "neuralv.desktop",
+                "comment": "Клиент защиты NeuralV",
+                "categories": "Utility;Security;"
+              }
+            },
             "packages": {
               "ubuntu": {
                 "packageType": "deb",
@@ -201,7 +220,18 @@
             "platform": "nv-windows"
           },
           "metadata": {
-            "updateChannel": "main"
+            "updateChannel": "main",
+            "commands": {
+              "powershell": {
+                "install": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"irm https://raw.githubusercontent.com/Perdonus/NV/windows-builds/nv.ps1 | iex\"",
+                "update": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"irm https://raw.githubusercontent.com/Perdonus/NV/windows-builds/nv.ps1 | iex\""
+              },
+              "cmd": {
+                "install": "curl.exe -fsSL https://raw.githubusercontent.com/Perdonus/NV/windows-builds/nv.cmd -o \"%TEMP%\\nv-install.cmd\" && cmd /c \"%TEMP%\\nv-install.cmd\"",
+                "update": "curl.exe -fsSL https://raw.githubusercontent.com/Perdonus/NV/windows-builds/nv.cmd -o \"%TEMP%\\nv-update.cmd\" && cmd /c \"%TEMP%\\nv-update.cmd\""
+              }
+            },
+            "pathEntry": "%LOCALAPPDATA%/NV"
           }
         }
       ]

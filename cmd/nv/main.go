@@ -92,12 +92,7 @@ func printHelp() {
   search [query]
   info <package>
   version | -v | --version
-  help | -h | --help
-
-Аргументы:
-  <package>
-  <version>
-  [query]`)
+  help | -h | --help`)
 }
 
 func installPackage(client *api.Client, spec string) error {
@@ -386,6 +381,9 @@ func installWindowsSelfBinaryPackage(pkg *api.ResolvedPackage) error {
 	if err := ensureWindowsCmdWrapper(installRoot, binaryName); err != nil {
 		return err
 	}
+	if err := ensureWindowsUserPath(installRoot); err != nil {
+		return err
+	}
 
 	fmt.Printf("Пакет %s установлен или обновлен до версии %s\n", pkg.Name, pkg.ResolvedVersion)
 	fmt.Printf("Путь: %s\n", target)
@@ -588,6 +586,33 @@ func ensureWindowsCmdWrapper(installRoot, binaryName string) error {
 	wrapper := filepath.Join(installRoot, "nv.cmd")
 	script := fmt.Sprintf("@echo off\r\n\"%s\" %%*\r\n", target)
 	return os.WriteFile(wrapper, []byte(script), 0o755)
+}
+
+func ensureWindowsUserPath(installRoot string) error {
+	currentPath := os.Getenv("PATH")
+	if !pathListContains(currentPath, installRoot) {
+		if currentPath == "" {
+			_ = os.Setenv("PATH", installRoot)
+		} else {
+			_ = os.Setenv("PATH", installRoot+string(os.PathListSeparator)+currentPath)
+		}
+	}
+
+	script := strings.Join([]string{
+		fmt.Sprintf("$entry = '%s'", escapePowerShellString(installRoot)),
+		"$userPath = [Environment]::GetEnvironmentVariable('Path', 'User')",
+		"$parts = @()",
+		"if ($userPath) { $parts = $userPath.Split(';', [System.StringSplitOptions]::RemoveEmptyEntries) }",
+		"$exists = $false",
+		"foreach ($part in $parts) { if ($part.TrimEnd('\\') -ieq $entry.TrimEnd('\\')) { $exists = $true; break } }",
+		"if (-not $exists) {",
+		"  $updated = @($entry)",
+		"  if ($parts.Count -gt 0) { $updated += $parts }",
+		"  [Environment]::SetEnvironmentVariable('Path', ($updated -join ';'), 'User')",
+		"}",
+	}, "\n")
+
+	return runPowerShellScript(script)
 }
 
 func createWindowsShortcuts(target, workingDir string, shortcuts ...string) error {
@@ -813,6 +838,18 @@ func printPathHint(installRoot string) {
 		}
 	}
 	fmt.Printf("PATH: добавь %s в PATH, если пакет не находится сразу.\n", installRoot)
+}
+
+func pathListContains(pathEnv, target string) bool {
+	if strings.TrimSpace(pathEnv) == "" || strings.TrimSpace(target) == "" {
+		return false
+	}
+	for _, item := range filepath.SplitList(pathEnv) {
+		if sameFilePath(item, target) {
+			return true
+		}
+	}
+	return false
 }
 
 func warnIfNVUpdateAvailable(args []string, client *api.Client) {
