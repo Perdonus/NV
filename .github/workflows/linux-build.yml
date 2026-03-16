@@ -1,0 +1,104 @@
+name: Linux Build
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/linux-build.yml'
+      - 'cmd/**'
+      - 'internal/**'
+      - 'install/**'
+      - 'go.mod'
+      - 'VERSION'
+      - 'README.md'
+  workflow_dispatch:
+
+concurrency:
+  group: nv-linux-build-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  build-linux:
+    name: Build NV Linux
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+      - id: version
+        run: echo "semver=$(tr -d '[:space:]' < VERSION)" >> "$GITHUB_OUTPUT"
+      - run: |
+          set -euo pipefail
+          mkdir -p dist
+          go build -trimpath -ldflags="-s -w -X main.nvVersion=${{ steps.version.outputs.semver }}" -o dist/nv ./cmd/nv
+          tar -C dist -czf dist/nv-linux.tar.gz nv
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nv-linux
+          path: dist/nv-linux.tar.gz
+
+  publish-linux:
+    name: Publish NV Linux Branch
+    needs: build-linux
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: nv-linux
+          path: stage
+      - env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_SHA: ${{ github.sha }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_SERVER_URL: ${{ github.server_url }}
+        run: |
+          set -euo pipefail
+          semver="$(tr -d '[:space:]' < VERSION)"
+          mkdir -p publish/linux
+          cp stage/nv-linux.tar.gz "publish/linux/nv-linux-${semver}.tar.gz"
+          cp stage/nv-linux.tar.gz publish/linux/nv-linux.tar.gz
+          sha="$(sha256sum "publish/linux/nv-linux-${semver}.tar.gz" | awk '{print $1}')"
+          raw_base="https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/linux-builds"
+          export SEMVER="$semver" SHA="$sha" RAW_BASE="$raw_base"
+          python3 - <<'PY'
+          import json, os
+          from datetime import datetime, timezone
+          generated_at = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+          manifest = {
+              'success': True,
+              'generated_at': generated_at,
+              'release_channel': 'main',
+              'artifacts': [
+                  {
+                      'platform': 'nv-linux',
+                      'channel': 'main',
+                      'version': os.environ['SEMVER'],
+                      'sha256': os.environ['SHA'],
+                      'download_url': f"{os.environ['RAW_BASE']}/linux/nv-linux-{os.environ['SEMVER']}.tar.gz",
+                      'file_name': f"nv-linux-{os.environ['SEMVER']}.tar.gz",
+                      'metadata': {}
+                  }
+              ]
+          }
+          with open('publish/manifest.json','w',encoding='utf-8') as fh:
+              json.dump(manifest, fh, ensure_ascii=False, indent=2)
+          with open('publish/BUILD_INFO.txt','w',encoding='utf-8') as fh:
+              fh.write(f"Repository: {os.environ['GITHUB_REPOSITORY']}\nVersion: {os.environ['SEMVER']}\nCommit: {os.environ['GITHUB_SHA']}\nWorkflow Run: {os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}\nBuilt At: {generated_at}\n")
+          PY
+          cp install/nv.sh publish/nv.sh
+          tmpdir="$(mktemp -d)"
+          cp -R publish/. "$tmpdir/"
+          cd "$tmpdir"
+          git init
+          git checkout -b linux-builds
+          git add .
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m "Publish NV Linux ${semver} for ${GITHUB_SHA} [skip ci]"
+          git remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git push --force origin linux-builds
