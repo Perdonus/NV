@@ -103,7 +103,7 @@ func searchPackages(client *api.Client, query string) error {
 func showPackageInfo(client *api.Client, name string) error {
 	normalized := normalizePackageName(name)
 	if normalized == "" {
-		return errors.New("empty package name")
+		return errors.New("имя пакета не указано")
 	}
 
 	details, err := client.PackageDetails(normalized, runtime.GOOS)

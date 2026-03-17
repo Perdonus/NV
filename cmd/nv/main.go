@@ -37,7 +37,7 @@ var nvVersion = "dev"
 func main() {
 	client := api.NewClient(resolveBaseURL())
 	if err := handle(os.Args[1:], client); err != nil {
-		fmt.Fprintln(os.Stderr, "nv error:", err)
+		fmt.Fprintln(os.Stderr, "nv error:", humanizeError(err))
 		os.Exit(1)
 	}
 }
@@ -307,9 +307,9 @@ func installWindowsPortableZipPackage(pkg *api.ResolvedPackage) error {
 		return err
 	}
 
-	tmpDir, err := os.MkdirTemp(parentDir, "."+pkg.Name+".download-*")
+	tmpDir, err := os.MkdirTemp(parentDir, "."+safeFilesystemToken(pkg.Name)+".download-*")
 	if err != nil {
-		return err
+		return fmt.Errorf("не удалось подготовить временную папку: %w", err)
 	}
 	defer os.RemoveAll(tmpDir)
 
@@ -427,7 +427,7 @@ func installWindowsSelfBinaryPackage(pkg *api.ResolvedPackage) error {
 func uninstallPackage(client *api.Client, name string) error {
 	normalized := normalizePackageName(name)
 	if normalized == "" {
-		return errors.New("empty package name")
+		return errors.New("имя пакета не указано")
 	}
 
 	installedState, err := state.Load()
@@ -466,7 +466,7 @@ func uninstallPackage(client *api.Client, name string) error {
 func parsePackageSpec(spec string) (string, string, error) {
 	raw := strings.TrimSpace(spec)
 	if raw == "" {
-		return "", "", errors.New("empty package spec")
+		return "", "", errors.New("не указана спецификация пакета")
 	}
 
 	namePart := raw
@@ -482,7 +482,7 @@ func parsePackageSpec(spec string) (string, string, error) {
 
 	name := normalizePackageName(namePart)
 	if name == "" {
-		return "", "", errors.New("empty package name")
+		return "", "", errors.New("имя пакета не указано")
 	}
 
 	if version != "latest" {
@@ -683,30 +683,55 @@ func ensureLinuxDesktopIntegration(pkg *api.ResolvedPackage, installRoot string)
 	if err != nil {
 		return err
 	}
-	applicationsDir := filepath.Join(home, ".local", "share", "applications")
-	desktopDir := filepath.Join(home, "Desktop")
-	if err := os.MkdirAll(applicationsDir, 0o755); err != nil {
-		return err
-	}
-	if err := os.MkdirAll(desktopDir, 0o755); err != nil {
-		return err
+	if ok, reason := linuxDesktopIntegrationAvailable(); !ok {
+		fmt.Printf("Ярлыки: %s, пропускаем.\n", reason)
+		return nil
 	}
 
 	entryName := pkg.Title
 	if strings.TrimSpace(entryName) == "" {
 		entryName = pkg.Name
 	}
-	entryID := strings.ToLower(strings.ReplaceAll(strings.TrimSpace(pkg.Name), " ", "-"))
+	entryID := safeFilesystemToken(pkg.Name)
 	desktopEntry := fmt.Sprintf("[Desktop Entry]\nType=Application\nVersion=1.0\nName=%s\nExec=%q\nPath=%q\nTerminal=false\nCategories=Utility;Security;\nStartupNotify=true\n", entryName, launcher, installRoot)
 
-	menuPath := filepath.Join(applicationsDir, entryID+".desktop")
-	if err := os.WriteFile(menuPath, []byte(desktopEntry), 0o755); err != nil {
-		return err
+	applicationsDir := linuxApplicationsDir(home)
+	menuUpdated := false
+	if applicationsDir == "" {
+		fmt.Println("Ярлыки: каталог меню приложений недоступен, пропускаем.")
+	} else if err := os.MkdirAll(applicationsDir, 0o755); err != nil {
+		fmt.Printf("Ярлыки: меню приложений недоступно, пропускаем (%s).\n", shortSystemReason(err))
+	} else {
+		menuPath := filepath.Join(applicationsDir, entryID+".desktop")
+		if err := os.WriteFile(menuPath, []byte(desktopEntry), 0o755); err != nil {
+			fmt.Printf("Ярлыки: меню приложений пропущено (%s).\n", shortSystemReason(err))
+		} else {
+			menuUpdated = true
+		}
 	}
 
-	desktopPath := filepath.Join(desktopDir, entryName+".desktop")
-	if err := os.WriteFile(desktopPath, []byte(desktopEntry), 0o755); err != nil {
-		return err
+	desktopUpdated := false
+	desktopDir := filepath.Join(home, "Desktop")
+	if err := os.MkdirAll(desktopDir, 0o755); err != nil {
+		fmt.Printf("Ярлыки: рабочий стол недоступен, пропускаем (%s).\n", shortSystemReason(err))
+	} else {
+		desktopPath := filepath.Join(desktopDir, safeFilesystemToken(entryName)+".desktop")
+		if err := os.WriteFile(desktopPath, []byte(desktopEntry), 0o755); err != nil {
+			fmt.Printf("Ярлыки: рабочий стол пропущен (%s).\n", shortSystemReason(err))
+		} else {
+			desktopUpdated = true
+		}
+	}
+
+	switch {
+	case menuUpdated && desktopUpdated:
+		fmt.Println("Ярлыки: меню приложений и рабочий стол обновлены.")
+	case menuUpdated:
+		fmt.Println("Ярлыки: обновили меню приложений.")
+	case desktopUpdated:
+		fmt.Println("Ярлыки: обновили ярлык на рабочем столе.")
+	default:
+		fmt.Println("Ярлыки: desktop integration недоступна, установка продолжена без неё.")
 	}
 	return nil
 }
@@ -792,7 +817,10 @@ func runPowerShellScript(script string) error {
 	command := exec.Command("powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-EncodedCommand", encoded)
 	command.Stdout = os.Stdout
 	command.Stderr = os.Stderr
-	return command.Run()
+	if err := command.Run(); err != nil {
+		return fmt.Errorf("не удалось выполнить системную команду PowerShell: %w", err)
+	}
+	return nil
 }
 
 func utf16LEBytes(text string) []byte {
@@ -813,17 +841,17 @@ func escapePowerShellString(text string) string {
 func downloadRawFile(url, target string) error {
 	request, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
-		return err
+		return fmt.Errorf("не удалось подготовить скачивание: %w", err)
 	}
 	client := &http.Client{Timeout: 5 * time.Minute}
 	response, err := client.Do(request)
 	if err != nil {
-		return err
+		return fmt.Errorf("не удалось скачать пакет: %w", err)
 	}
 	defer response.Body.Close()
 	if response.StatusCode >= 400 {
 		body, _ := io.ReadAll(response.Body)
-		return fmt.Errorf("ошибка скачивания артефакта: http %d: %s", response.StatusCode, strings.TrimSpace(string(body)))
+		return fmt.Errorf("не удалось скачать пакет: http %d: %s", response.StatusCode, strings.TrimSpace(string(body)))
 	}
 	return writeRegularFile(target, response.Body, 0o755)
 }
@@ -831,17 +859,17 @@ func downloadRawFile(url, target string) error {
 func downloadArtifactBinary(url, target, expectedName string) error {
 	request, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
-		return err
+		return fmt.Errorf("не удалось подготовить скачивание: %w", err)
 	}
 	client := &http.Client{Timeout: 5 * time.Minute}
 	response, err := client.Do(request)
 	if err != nil {
-		return err
+		return fmt.Errorf("не удалось скачать пакет: %w", err)
 	}
 	defer response.Body.Close()
 	if response.StatusCode >= 400 {
 		body, _ := io.ReadAll(response.Body)
-		return fmt.Errorf("ошибка скачивания артефакта: http %d: %s", response.StatusCode, strings.TrimSpace(string(body)))
+		return fmt.Errorf("не удалось скачать пакет: http %d: %s", response.StatusCode, strings.TrimSpace(string(body)))
 	}
 
 	lowerURL := strings.ToLower(url)
@@ -868,12 +896,12 @@ func writeExecutableFile(target string, data []byte) error {
 func copyToTarget(reader io.Reader, target string) error {
 	dir := filepath.Dir(target)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
+		return fmt.Errorf("не удалось подготовить папку установки: %w", err)
 	}
 
 	tempFile, err := os.CreateTemp(dir, ".nv-*")
 	if err != nil {
-		return err
+		return fmt.Errorf("не удалось создать временный файл: %w", err)
 	}
 	tempPath := tempFile.Name()
 	defer os.Remove(tempPath)
@@ -896,10 +924,13 @@ func copyToTarget(reader io.Reader, target string) error {
 func replaceFile(source, target string) error {
 	if runtime.GOOS == "windows" {
 		if err := os.Remove(target); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return err
+			return fmt.Errorf("не удалось заменить старую версию: %w", err)
 		}
 	}
-	return os.Rename(source, target)
+	if err := os.Rename(source, target); err != nil {
+		return fmt.Errorf("не удалось обновить файл пакета: %w", err)
+	}
+	return nil
 }
 
 func extractTarball(reader io.Reader, target, expectedName string) error {
@@ -1055,6 +1086,117 @@ func latestPackageVersion(client *api.Client, packageName, goos string) (string,
 	return normalizePackageVersion(packageName, resolved.Package.ResolvedVersion)
 }
 
+func linuxDesktopIntegrationAvailable() (bool, string) {
+	for _, key := range []string{"DISPLAY", "WAYLAND_DISPLAY", "XDG_CURRENT_DESKTOP", "DESKTOP_SESSION"} {
+		if strings.TrimSpace(os.Getenv(key)) != "" {
+			return true, ""
+		}
+	}
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("XDG_SESSION_TYPE"))) {
+	case "wayland", "x11":
+		return true, ""
+	default:
+		return false, "desktop-среда не обнаружена"
+	}
+}
+
+func linuxApplicationsDir(home string) string {
+	if xdg := strings.TrimSpace(os.Getenv("XDG_DATA_HOME")); xdg != "" {
+		return filepath.Join(xdg, "applications")
+	}
+	if strings.TrimSpace(home) == "" {
+		return ""
+	}
+	return filepath.Join(home, ".local", "share", "applications")
+}
+
+func safeFilesystemToken(text string) string {
+	trimmed := strings.ToLower(strings.TrimSpace(text))
+	if trimmed == "" {
+		return "nv"
+	}
+	var builder strings.Builder
+	lastDash := false
+	for _, r := range trimmed {
+		isLetter := r >= 'a' && r <= 'z'
+		isDigit := r >= '0' && r <= '9'
+		if isLetter || isDigit {
+			builder.WriteRune(r)
+			lastDash = false
+			continue
+		}
+		if !lastDash {
+			builder.WriteByte('-')
+			lastDash = true
+		}
+	}
+	result := strings.Trim(builder.String(), "-")
+	if result == "" {
+		return "nv"
+	}
+	return result
+}
+
+func humanizeError(err error) string {
+	if err == nil {
+		return ""
+	}
+	message := strings.TrimSpace(strings.ReplaceAll(err.Error(), "\r", ""))
+	if message == "" {
+		return "неизвестная ошибка"
+	}
+	collapsed := strings.Join(strings.Fields(message), " ")
+	lower := strings.ToLower(collapsed)
+
+	switch {
+	case strings.Contains(lower, "pattern contains path separator"):
+		return "не удалось подготовить временную папку. Обнови NV и повтори команду."
+	case strings.Contains(lower, "mkdirtemp"):
+		return "не удалось подготовить временную папку для установки."
+	case strings.Contains(lower, "invalid cross-device link"), strings.Contains(lower, "different disk drive"):
+		return "не удалось перенести файлы между разными дисками. Повтори установку после обновления NV."
+	case strings.Contains(lower, "http 401"):
+		return "сервер отклонил запрос. Проверь авторизацию и повтори попытку."
+	case strings.Contains(lower, "http 403"):
+		return "доступ к пакету сейчас запрещён."
+	case strings.Contains(lower, "http 404"):
+		return "пакет или версия не найдены."
+	case strings.Contains(lower, "http 429"):
+		return "сервер временно ограничил запросы. Попробуй чуть позже."
+	case strings.Contains(lower, "http 500"), strings.Contains(lower, "http 502"), strings.Contains(lower, "http 503"), strings.Contains(lower, "http 504"):
+		return "сервер временно недоступен. Попробуй позже."
+	case strings.Contains(lower, "context deadline exceeded"), strings.Contains(lower, "client.timeout exceeded"), strings.Contains(lower, "timeout"):
+		return "сервер отвечает слишком долго. Попробуй ещё раз позже."
+	case strings.Contains(lower, "dial tcp"), strings.Contains(lower, "no such host"), strings.Contains(lower, "connection refused"):
+		return "не удалось подключиться к серверу. Проверь интернет или адрес сервера."
+	case strings.Contains(lower, ".desktop: no such file or directory"):
+		return "desktop integration недоступна в этой системе. Установка продолжена без ярлыков."
+	case strings.HasPrefix(lower, "exit status "):
+		return "системная команда установки завершилась с ошибкой."
+	default:
+		return collapsed
+	}
+}
+
+func shortSystemReason(err error) string {
+	if err == nil {
+		return ""
+	}
+	message := strings.TrimSpace(err.Error())
+	if message == "" {
+		return "неизвестная ошибка"
+	}
+	lower := strings.ToLower(message)
+	switch {
+	case strings.Contains(lower, "no such file or directory"):
+		return "каталог недоступен"
+	case strings.Contains(lower, "permission denied"), strings.Contains(lower, "access is denied"):
+		return "нет доступа"
+	default:
+		return message
+	}
+}
+
 func uninstallResolvedPackage(pkg *api.ResolvedPackage) error {
 	switch pkg.Variant.UninstallStrategy {
 	case "windows-remove-dir":
@@ -1164,12 +1306,12 @@ func replaceExtractedDirectory(extractDir, installRoot string) error {
 
 	parentDir := filepath.Dir(installRoot)
 	if err := os.MkdirAll(parentDir, 0o755); err != nil {
-		return err
+		return fmt.Errorf("не удалось подготовить папку установки: %w", err)
 	}
 
 	stageRoot, err := os.MkdirTemp(parentDir, "."+filepath.Base(installRoot)+".stage-*")
 	if err != nil {
-		return err
+		return fmt.Errorf("не удалось подготовить временную папку: %w", err)
 	}
 	_ = os.Remove(stageRoot)
 
@@ -1297,12 +1439,12 @@ func copyFileSync(sourcePath, targetPath string, mode os.FileMode) error {
 	defer sourceFile.Close()
 
 	if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
-		return err
+		return fmt.Errorf("не удалось подготовить папку установки: %w", err)
 	}
 
 	tempFile, err := os.CreateTemp(filepath.Dir(targetPath), ".nv-copy-*")
 	if err != nil {
-		return err
+		return fmt.Errorf("не удалось создать временный файл: %w", err)
 	}
 	tempPath := tempFile.Name()
 	defer os.Remove(tempPath)
