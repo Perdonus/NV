@@ -278,7 +278,7 @@ func installWindowsPortableZipPackage(pkg *api.ResolvedPackage) error {
 		return err
 	}
 
-	tmpDir, err := os.MkdirTemp("", "nv-win-package-*")
+	tmpDir, err := os.MkdirTemp(parentDir, "."+pkg.Name+".download-*")
 	if err != nil {
 		return err
 	}
@@ -1061,6 +1061,9 @@ func replaceExtractedDirectory(extractDir, installRoot string) error {
 }
 
 func stageDirectoryForInstall(sourceRoot, stageRoot string) error {
+	if shouldCopyDirectoryForInstall(sourceRoot, stageRoot) {
+		return copyDirectoryTree(sourceRoot, stageRoot)
+	}
 	if err := os.Rename(sourceRoot, stageRoot); err == nil {
 		return nil
 	} else if !isCrossDeviceRename(err) {
@@ -1069,8 +1072,32 @@ func stageDirectoryForInstall(sourceRoot, stageRoot string) error {
 	return copyDirectoryTree(sourceRoot, stageRoot)
 }
 
+func shouldCopyDirectoryForInstall(sourceRoot, stageRoot string) bool {
+	if runtime.GOOS != "windows" {
+		return false
+	}
+
+	sourceVolume := strings.TrimRight(filepath.VolumeName(sourceRoot), `\/`)
+	targetVolume := strings.TrimRight(filepath.VolumeName(stageRoot), `\/`)
+	if sourceVolume == "" || targetVolume == "" {
+		return false
+	}
+	return !strings.EqualFold(sourceVolume, targetVolume)
+}
+
 func isCrossDeviceRename(err error) bool {
-	return errors.Is(err, syscall.EXDEV)
+	if errors.Is(err, syscall.EXDEV) {
+		return true
+	}
+	if runtime.GOOS != "windows" {
+		return false
+	}
+
+	var errno syscall.Errno
+	if !errors.As(err, &errno) {
+		return false
+	}
+	return errno == syscall.Errno(17) // ERROR_NOT_SAME_DEVICE
 }
 
 func copyDirectoryTree(sourceRoot, targetRoot string) error {
