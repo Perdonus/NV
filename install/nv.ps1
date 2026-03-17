@@ -43,7 +43,7 @@ function Add-UserPathEntry {
 
 Add-UserPathEntry -PathEntry $installRoot
 
-$versionOutput = & $target -v
+$versionOutput = & nv -v
 if ($LASTEXITCODE -ne 0) {
     throw 'nv verification failed'
 }

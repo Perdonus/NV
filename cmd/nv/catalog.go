@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"runtime"
+	"sort"
 	"strings"
 
 	"github.com/Perdonus/NV/internal/api"
@@ -22,16 +23,46 @@ func listInstalledPackages() error {
 		return nil
 	}
 
+	grouped := map[string][]string{}
 	for _, name := range names {
-		record, ok := installedState.Get(name)
-		if !ok {
+		grouped[canonicalPackageKey(name)] = append(grouped[canonicalPackageKey(name)], name)
+	}
+
+	displayNames := make([]string, 0, len(grouped))
+	for name := range grouped {
+		displayNames = append(displayNames, name)
+	}
+	sort.Strings(displayNames)
+
+	for _, displayName := range displayNames {
+		keys := grouped[displayName]
+		sort.Strings(keys)
+		if len(keys) == 1 {
+			record, ok := installedState.Get(keys[0])
+			if !ok {
+				continue
+			}
+			line := fmt.Sprintf("%s %s", displayName, record.Package.ResolvedVersion)
+			if label := strings.TrimSpace(record.Package.Variant.Label); label != "" {
+				line += fmt.Sprintf(" [%s]", label)
+			}
+			fmt.Println(line)
 			continue
 		}
-		line := fmt.Sprintf("%s %s", record.Package.Name, record.Package.ResolvedVersion)
-		if label := strings.TrimSpace(record.Package.Variant.Label); label != "" {
-			line += fmt.Sprintf(" [%s]", label)
+
+		components := make([]string, 0, len(keys))
+		for _, key := range keys {
+			record, ok := installedState.Get(key)
+			if !ok {
+				continue
+			}
+			label := strings.TrimSpace(record.Package.Variant.Label)
+			if label == "" {
+				label = strings.TrimSpace(record.Package.Variant.ID)
+			}
+			components = append(components, fmt.Sprintf("%s:%s", label, record.Package.ResolvedVersion))
 		}
-		fmt.Println(line)
+		fmt.Printf("%s [%s]\n", displayName, strings.Join(components, ", "))
 	}
 	return nil
 }
@@ -55,7 +86,7 @@ func searchPackages(client *api.Client, query string) error {
 		matches++
 		latestVersion := normalizedCatalogVersion(pkg.Name, pkg.LatestVersion)
 		line := fmt.Sprintf("%s %s", pkg.Name, latestVersion)
-		if installed, ok := installedState.Get(pkg.Name); ok {
+		if installed, ok := getInstalledStateRecord(installedState, pkg.Name); ok {
 			line += fmt.Sprintf(" installed:%s", installed.Package.ResolvedVersion)
 		}
 		fmt.Println(line)
@@ -97,7 +128,7 @@ func showPackageInfo(client *api.Client, name string) error {
 	if latestVersion := normalizedCatalogVersion(pkg.Name, pkg.LatestVersion); latestVersion != "" && latestVersion != "unknown" {
 		fmt.Printf("Latest: %s\n", latestVersion)
 	}
-	if installed, ok := safeInstalledState().Get(pkg.Name); ok {
+	if installed, ok := getInstalledStateRecord(safeInstalledState(), pkg.Name); ok {
 		fmt.Printf("Installed: %s\n", installed.Package.ResolvedVersion)
 	}
 

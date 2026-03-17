@@ -100,7 +100,12 @@ func (c *Client) PackageDetails(name, goos string) (*PackageDetailResponse, erro
 	if normalized := normalizeOS(goos); normalized != "" {
 		query.Set("os", normalized)
 	}
-	return getJSON[PackageDetailResponse](c, fmt.Sprintf("/api/packages/%s", url.PathEscape(strings.TrimSpace(name))), query)
+	response, err := getJSON[PackageDetailResponse](c, fmt.Sprintf("/api/packages/%s", url.PathEscape(backendPackageName(name))), query)
+	if err != nil {
+		return nil, err
+	}
+	canonicalizePackageRecord(&response.Package)
+	return response, nil
 }
 
 func (c *Client) ResolvePackage(name, version, goos, variant string) (*PackageResolveResponse, error) {
@@ -114,7 +119,12 @@ func (c *Client) ResolvePackage(name, version, goos, variant string) (*PackageRe
 	if strings.TrimSpace(variant) != "" {
 		query.Set("variant", strings.TrimSpace(variant))
 	}
-	return getJSON[PackageResolveResponse](c, fmt.Sprintf("/api/packages/%s/resolve", url.PathEscape(strings.TrimSpace(name))), query)
+	response, err := getJSON[PackageResolveResponse](c, fmt.Sprintf("/api/packages/%s/resolve", url.PathEscape(backendPackageName(name))), query)
+	if err != nil {
+		return nil, err
+	}
+	canonicalizeResolvedPackage(&response.Package)
+	return response, nil
 }
 
 func getJSON[T any](c *Client, route string, query url.Values) (*T, error) {
@@ -141,6 +151,12 @@ func getJSON[T any](c *Client, route string, query url.Values) (*T, error) {
 	if err := json.Unmarshal(body, &parsed); err != nil {
 		return nil, err
 	}
+	switch typed := any(&parsed).(type) {
+	case *PackageCatalogResponse:
+		for index := range typed.Packages {
+			canonicalizePackageRecord(&typed.Packages[index])
+		}
+	}
 	return &parsed, nil
 }
 
@@ -153,4 +169,41 @@ func normalizeOS(goos string) string {
 	default:
 		return strings.ToLower(strings.TrimSpace(goos))
 	}
+}
+
+func backendPackageName(name string) string {
+	switch canonicalPackageName(name) {
+	case "@lvls/neuralv":
+		return "neuralv"
+	case "@lvls/nv":
+		return "nv"
+	default:
+		return strings.TrimSpace(name)
+	}
+}
+
+func canonicalPackageName(name string) string {
+	normalized := strings.ToLower(strings.TrimSpace(name))
+	switch normalized {
+	case "neuralv", "@lvls/neuralv":
+		return "@lvls/neuralv"
+	case "nv", "@lvls/nv":
+		return "@lvls/nv"
+	default:
+		return normalized
+	}
+}
+
+func canonicalizePackageRecord(record *PackageRecord) {
+	if record == nil {
+		return
+	}
+	record.Name = canonicalPackageName(record.Name)
+}
+
+func canonicalizeResolvedPackage(pkg *ResolvedPackage) {
+	if pkg == nil {
+		return
+	}
+	pkg.Name = canonicalPackageName(pkg.Name)
 }

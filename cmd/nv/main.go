@@ -27,6 +27,11 @@ import (
 
 const defaultBaseURL = "https://sosiskibot.ru/basedata"
 
+const (
+	canonicalNeuralVPackage = "@lvls/neuralv"
+	canonicalNVPackage      = "@lvls/nv"
+)
+
 var nvVersion = "dev"
 
 func main() {
@@ -108,6 +113,10 @@ func installPackage(client *api.Client, spec string) error {
 		return fmt.Errorf("не удалось открыть локальное состояние пакетов: %w", err)
 	}
 
+	if isUnifiedDesktopPackage(name) {
+		return installUnifiedDesktopProduct(client, installedState, name, version)
+	}
+
 	step(1, 3, fmt.Sprintf("получаем пакет %s", name))
 	resolved, err := client.ResolvePackage(name, version, runtime.GOOS, "")
 	if err != nil {
@@ -127,7 +136,7 @@ func installPackage(client *api.Client, spec string) error {
 	if normalizedLatestVersion, err := normalizePackageVersion(name, resolved.Package.LatestVersion); err == nil {
 		resolved.Package.LatestVersion = normalizedLatestVersion
 	}
-	if installed, ok := installedState.Get(name); ok {
+	if installed, ok := getInstalledStateRecord(installedState, name); ok {
 		if sameInstalledPackage(installed.Package, resolved.Package) {
 			fmt.Printf("Пакет %s уже установлен: %s\n", resolved.Package.Name, resolved.Package.ResolvedVersion)
 			return nil
@@ -139,6 +148,7 @@ func installPackage(client *api.Client, spec string) error {
 		return err
 	}
 
+	resolved.Package.Name = statePackageName(name, resolved.Package.Variant.ID)
 	installedState.Put(resolved.Package)
 	if err := state.Save(installedState); err != nil {
 		return fmt.Errorf("пакет установлен, но локальное состояние не обновлено: %w", err)
@@ -308,6 +318,9 @@ func installWindowsPortableZipPackage(pkg *api.ResolvedPackage) error {
 	if err := ensureWindowsShortcuts(pkg, installRoot); err != nil {
 		return err
 	}
+	if err := ensureWindowsUserPath(installRoot); err != nil {
+		return err
+	}
 
 	fmt.Printf("Пакет %s установлен или обновлен до версии %s\n", pkg.Name, pkg.ResolvedVersion)
 	fmt.Printf("Путь: %s\n", installRoot)
@@ -403,8 +416,12 @@ func uninstallPackage(client *api.Client, name string) error {
 		return fmt.Errorf("не удалось открыть локальное состояние пакетов: %w", err)
 	}
 
+	if isUnifiedDesktopPackage(normalized) {
+		return uninstallUnifiedDesktopProduct(client, installedState, normalized)
+	}
+
 	var pkg *api.ResolvedPackage
-	if installed, ok := installedState.Get(normalized); ok {
+	if installed, ok := getInstalledStateRecord(installedState, normalized); ok {
 		pkg = &installed.Package
 	} else {
 		resolved, err := client.ResolvePackage(normalized, "latest", runtime.GOOS, "")
@@ -433,16 +450,22 @@ func parsePackageSpec(spec string) (string, string, error) {
 		return "", "", errors.New("empty package spec")
 	}
 
-	parts := strings.SplitN(raw, "@", 2)
-	name := normalizePackageName(parts[0])
+	namePart := raw
+	version := "latest"
+	if lastAt := strings.LastIndex(raw, "@"); lastAt > 0 {
+		candidateName := strings.TrimSpace(raw[:lastAt])
+		candidateVersion := strings.TrimSpace(raw[lastAt+1:])
+		if candidateName != "" && candidateVersion != "" {
+			namePart = candidateName
+			version = candidateVersion
+		}
+	}
+
+	name := normalizePackageName(namePart)
 	if name == "" {
 		return "", "", errors.New("empty package name")
 	}
 
-	version := "latest"
-	if len(parts) == 2 && strings.TrimSpace(parts[1]) != "" {
-		version = strings.TrimSpace(parts[1])
-	}
 	if version != "latest" {
 		normalizedVersion, err := semver.Normalize(version)
 		if err != nil {
@@ -454,7 +477,15 @@ func parsePackageSpec(spec string) (string, string, error) {
 }
 
 func normalizePackageName(name string) string {
-	return strings.ToLower(strings.TrimSpace(name))
+	normalized := strings.ToLower(strings.TrimSpace(name))
+	switch normalized {
+	case "neuralv", canonicalNeuralVPackage:
+		return canonicalNeuralVPackage
+	case "nv", canonicalNVPackage:
+		return canonicalNVPackage
+	default:
+		return normalized
+	}
 }
 
 func resolveInstallRoot(configuredRoot, fallback string) (string, error) {
@@ -862,7 +893,7 @@ func warnIfNVUpdateAvailable(args []string, client *api.Client) {
 		return
 	}
 
-	latestVersion, err := latestPackageVersion(client, "nv", runtime.GOOS)
+	latestVersion, err := latestPackageVersion(client, canonicalNVPackage, runtime.GOOS)
 	if err != nil {
 		return
 	}
@@ -872,7 +903,7 @@ func warnIfNVUpdateAvailable(args []string, client *api.Client) {
 
 	fmt.Fprintln(os.Stderr)
 	fmt.Fprintf(os.Stderr, "!!! ДОСТУПЕН НОВЫЙ NV %s (сейчас %s)\n", latestVersion, nvVersion)
-	fmt.Fprintln(os.Stderr, "!!! Обновление: nv install nv@latest")
+	fmt.Fprintln(os.Stderr, "!!! Обновление: nv install @lvls/nv")
 	fmt.Fprintln(os.Stderr)
 }
 
@@ -884,7 +915,7 @@ func shouldSkipNVUpdateCheck(args []string) bool {
 	if err != nil {
 		return false
 	}
-	return name == "nv"
+	return name == canonicalNVPackage
 }
 
 func latestPackageVersion(client *api.Client, packageName, goos string) (string, error) {
@@ -1221,19 +1252,20 @@ func normalizePackageVersion(packageName, version string) (string, error) {
 }
 
 func sameInstalledPackage(current, next api.ResolvedPackage) bool {
-	return strings.EqualFold(current.Name, next.Name) &&
+	return strings.EqualFold(canonicalPackageKey(current.Name), canonicalPackageKey(next.Name)) &&
 		current.ResolvedVersion == next.ResolvedVersion &&
 		current.Variant.ID == next.Variant.ID
 }
 
 func printInstallTransition(current, next api.ResolvedPackage) {
+	displayName := canonicalPackageKey(next.Name)
 	switch semver.Compare(next.ResolvedVersion, current.ResolvedVersion) {
 	case 1:
-		fmt.Printf("Обновляем %s: %s -> %s\n", next.Name, current.ResolvedVersion, next.ResolvedVersion)
+		fmt.Printf("Обновляем %s: %s -> %s\n", displayName, current.ResolvedVersion, next.ResolvedVersion)
 	case -1:
-		fmt.Printf("Меняем версию %s: %s -> %s\n", next.Name, current.ResolvedVersion, next.ResolvedVersion)
+		fmt.Printf("Меняем версию %s: %s -> %s\n", displayName, current.ResolvedVersion, next.ResolvedVersion)
 	default:
-		fmt.Printf("Переустанавливаем %s %s\n", next.Name, next.ResolvedVersion)
+		fmt.Printf("Переустанавливаем %s %s\n", displayName, next.ResolvedVersion)
 	}
 }
 
@@ -1277,4 +1309,149 @@ func inferredBinaryName(downloadURL string) string {
 		}
 	}
 	return name
+}
+
+func isUnifiedDesktopPackage(name string) bool {
+	return normalizePackageName(name) == canonicalNeuralVPackage
+}
+
+func statePackageName(name, variantID string) string {
+	canonical := normalizePackageName(name)
+	if canonical == canonicalNeuralVPackage && strings.TrimSpace(variantID) != "" {
+		return canonical + "#" + strings.ToLower(strings.TrimSpace(variantID))
+	}
+	return canonical
+}
+
+func canonicalPackageKey(name string) string {
+	trimmed := strings.TrimSpace(name)
+	if index := strings.Index(trimmed, "#"); index >= 0 {
+		trimmed = trimmed[:index]
+	}
+	return normalizePackageName(trimmed)
+}
+
+func getInstalledStateRecord(installedState *state.File, name string) (state.InstalledPackage, bool) {
+	canonical := normalizePackageName(name)
+	if installed, ok := installedState.Get(canonical); ok {
+		return installed, true
+	}
+	switch canonical {
+	case canonicalNeuralVPackage:
+		if installed, ok := installedState.Get("neuralv"); ok {
+			return installed, true
+		}
+	case canonicalNVPackage:
+		if installed, ok := installedState.Get("nv"); ok {
+			return installed, true
+		}
+	}
+	return state.InstalledPackage{}, false
+}
+
+func installUnifiedDesktopProduct(client *api.Client, installedState *state.File, name, version string) error {
+	components, err := unifiedDesktopComponents(client, name, version)
+	if err != nil {
+		return err
+	}
+	for index, component := range components {
+		componentState := component
+		componentState.Name = statePackageName(name, component.Variant.ID)
+		if installed, ok := getInstalledStateRecord(installedState, componentState.Name); ok {
+			if sameInstalledPackage(installed.Package, componentState) {
+				fmt.Printf("Компонент %s уже установлен: %s\n", component.Variant.Label, component.ResolvedVersion)
+				continue
+			}
+			printInstallTransition(installed.Package, componentState)
+		}
+		if index == 0 {
+			fmt.Printf("Устанавливаем unified desktop package %s\n", name)
+		}
+		if err := installResolvedPackage(&component); err != nil {
+			return err
+		}
+		installedState.Put(componentState)
+	}
+	if err := state.Save(installedState); err != nil {
+		return fmt.Errorf("пакет установлен, но локальное состояние не обновлено: %w", err)
+	}
+	return nil
+}
+
+func unifiedDesktopComponents(client *api.Client, name, version string) ([]api.ResolvedPackage, error) {
+	variantIDs := []string{}
+	switch runtime.GOOS {
+	case "linux":
+		variantIDs = []string{"linux-gui", "linux-cli"}
+	case "windows":
+		variantIDs = []string{"windows-gui"}
+	default:
+		return nil, fmt.Errorf("unified desktop package %s пока не поддерживается на %s", name, runtime.GOOS)
+	}
+
+	components := make([]api.ResolvedPackage, 0, len(variantIDs))
+	for _, variantID := range variantIDs {
+		resolved, err := client.ResolvePackage(name, version, runtime.GOOS, variantID)
+		if err != nil {
+			return nil, fmt.Errorf("не удалось получить компонент %s: %w", variantID, err)
+		}
+		if !resolved.Success && strings.TrimSpace(resolved.Error) != "" {
+			return nil, fmt.Errorf("компонент %s недоступен: %s", variantID, strings.TrimSpace(resolved.Error))
+		}
+		component := resolved.Package
+		component.Name = normalizePackageName(component.Name)
+		resolvedVersion, err := normalizePackageVersion(component.Name, component.ResolvedVersion)
+		if err != nil {
+			return nil, err
+		}
+		component.ResolvedVersion = resolvedVersion
+		if normalizedLatestVersion, err := normalizePackageVersion(component.Name, component.LatestVersion); err == nil {
+			component.LatestVersion = normalizedLatestVersion
+		}
+		components = append(components, component)
+	}
+	return components, nil
+}
+
+func uninstallUnifiedDesktopProduct(client *api.Client, installedState *state.File, name string) error {
+	variantIDs := []string{}
+	switch runtime.GOOS {
+	case "linux":
+		variantIDs = []string{"linux-gui", "linux-cli"}
+	case "windows":
+		variantIDs = []string{"windows-gui"}
+	default:
+		return fmt.Errorf("unified desktop package %s пока не поддерживается на %s", name, runtime.GOOS)
+	}
+
+	for _, variantID := range variantIDs {
+		key := statePackageName(name, variantID)
+		if installed, ok := getInstalledStateRecord(installedState, key); ok {
+			pkg := installed.Package
+			if pkg.Name == "" {
+				continue
+			}
+			if err := uninstallResolvedPackage(&pkg); err != nil {
+				return err
+			}
+			installedState.Delete(key)
+			continue
+		}
+
+		resolved, err := client.ResolvePackage(name, "latest", runtime.GOOS, variantID)
+		if err != nil {
+			return fmt.Errorf("реестр пакетов недоступен: %w", err)
+		}
+		if !resolved.Success && strings.TrimSpace(resolved.Error) != "" {
+			return errors.New(strings.TrimSpace(resolved.Error))
+		}
+		if err := uninstallResolvedPackage(&resolved.Package); err != nil {
+			return err
+		}
+	}
+
+	if err := state.Save(installedState); err != nil {
+		return fmt.Errorf("пакет удален, но локальное состояние не обновлено: %w", err)
+	}
+	return nil
 }

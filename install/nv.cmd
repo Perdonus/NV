@@ -23,7 +23,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$exists=$false; foreach ($part in $parts) { if ($part.TrimEnd('\') -ieq $entry.TrimEnd('\')) { $exists=$true; break } };" ^
   "if (-not $exists) { [Environment]::SetEnvironmentVariable('Path', (($entry) + ';' + $userPath).Trim(';'),'User') }" || exit /b 1
 set "PATH=%INSTALL_ROOT%;%PATH%"
-"%TARGET%" -v > "%TEMP%\nv-version.txt" 2>&1 || (
+nv -v > "%TEMP%\nv-version.txt" 2>&1 || (
   type "%TEMP%\nv-version.txt"
   exit /b 1
 )
