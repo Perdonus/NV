@@ -100,7 +100,8 @@ func (c *Client) PackageDetails(name, goos string) (*PackageDetailResponse, erro
 	if normalized := normalizeOS(goos); normalized != "" {
 		query.Set("os", normalized)
 	}
-	response, err := getJSON[PackageDetailResponse](c, fmt.Sprintf("/api/packages/%s", url.PathEscape(backendPackageName(name))), query)
+	query.Set("name", canonicalPackageName(name))
+	response, err := getJSON[PackageDetailResponse](c, "/api/packages/details", query)
 	if err != nil {
 		return nil, err
 	}
@@ -113,13 +114,14 @@ func (c *Client) ResolvePackage(name, version, goos, variant string) (*PackageRe
 	if normalized := normalizeOS(goos); normalized != "" {
 		query.Set("os", normalized)
 	}
+	query.Set("name", canonicalPackageName(name))
 	if strings.TrimSpace(version) != "" {
 		query.Set("version", strings.TrimSpace(version))
 	}
 	if strings.TrimSpace(variant) != "" {
 		query.Set("variant", strings.TrimSpace(variant))
 	}
-	response, err := getJSON[PackageResolveResponse](c, fmt.Sprintf("/api/packages/%s/resolve", url.PathEscape(backendPackageName(name))), query)
+	response, err := getJSON[PackageResolveResponse](c, "/api/packages/resolve", query)
 	if err != nil {
 		return nil, err
 	}
@@ -168,17 +170,6 @@ func normalizeOS(goos string) string {
 		return "windows"
 	default:
 		return strings.ToLower(strings.TrimSpace(goos))
-	}
-}
-
-func backendPackageName(name string) string {
-	switch canonicalPackageName(name) {
-	case "@lvls/neuralv":
-		return "neuralv"
-	case "@lvls/nv":
-		return "nv"
-	default:
-		return strings.TrimSpace(name)
 	}
 }
 

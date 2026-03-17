@@ -160,8 +160,12 @@ func installResolvedPackage(pkg *api.ResolvedPackage) error {
 	switch pkg.Variant.InstallStrategy {
 	case "linux-cli-wrapper":
 		return installLinuxCLIWrapperPackage(pkg)
+	case "linux-desktop-unified":
+		return installUnifiedLinuxDesktopPackage(pkg)
 	case "linux-portable-tar":
 		return installLinuxPortableTarPackage(pkg)
+	case "windows-desktop-bundle":
+		return installWindowsPortableZipPackage(pkg)
 	case "windows-portable-zip":
 		return installWindowsPortableZipPackage(pkg)
 	case "unix-self-binary":
@@ -276,6 +280,21 @@ func installLinuxPortableTarPackage(pkg *api.ResolvedPackage) error {
 	fmt.Printf("Пакет %s установлен или обновлен до версии %s\n", pkg.Name, pkg.ResolvedVersion)
 	fmt.Printf("Путь: %s\n", installRoot)
 	return nil
+}
+
+func installUnifiedLinuxDesktopPackage(pkg *api.ResolvedPackage) error {
+	if err := installLinuxPortableTarPackage(pkg); err != nil {
+		return err
+	}
+
+	cliPackage, err := buildLinuxCLICompanionPackage(pkg)
+	if err != nil {
+		return err
+	}
+	if cliPackage == nil {
+		return nil
+	}
+	return installLinuxCLIWrapperPackage(cliPackage)
 }
 
 func installWindowsPortableZipPackage(pkg *api.ResolvedPackage) error {
@@ -534,6 +553,103 @@ func metadataString(metadata map[string]any, key string) (string, bool) {
 	}
 	text, ok := value.(string)
 	return text, ok
+}
+
+func metadataObjectList(metadata map[string]any, key string) []map[string]any {
+	if metadata == nil {
+		return nil
+	}
+	raw, ok := metadata[key]
+	if !ok {
+		return nil
+	}
+	items, ok := raw.([]any)
+	if !ok {
+		return nil
+	}
+	result := make([]map[string]any, 0, len(items))
+	for _, item := range items {
+		entry, ok := item.(map[string]any)
+		if ok {
+			result = append(result, entry)
+		}
+	}
+	return result
+}
+
+func anyString(value any) string {
+	text, _ := value.(string)
+	return strings.TrimSpace(text)
+}
+
+func relatedArtifactByRole(metadata map[string]any, role string) map[string]any {
+	for _, item := range metadataObjectList(metadata, "related_artifacts") {
+		if strings.EqualFold(anyString(item["role"]), role) {
+			return item
+		}
+	}
+	return nil
+}
+
+func manifestSiblingURL(manifestURL, relativePath string) string {
+	manifestURL = strings.TrimSpace(manifestURL)
+	relativePath = strings.TrimSpace(relativePath)
+	if manifestURL == "" || relativePath == "" {
+		return ""
+	}
+	base := strings.TrimSuffix(manifestURL, "/manifest.json")
+	if base == manifestURL {
+		return ""
+	}
+	return strings.TrimRight(base, "/") + "/" + strings.TrimLeft(relativePath, "/")
+}
+
+func buildLinuxCLICompanionPackage(pkg *api.ResolvedPackage) (*api.ResolvedPackage, error) {
+	relatedCLI := relatedArtifactByRole(pkg.Variant.Metadata, "cli")
+	if relatedCLI == nil {
+		return nil, nil
+	}
+
+	downloadURL := anyString(relatedCLI["download_url"])
+	if downloadURL == "" {
+		return nil, nil
+	}
+
+	resolvedVersion := anyString(relatedCLI["version"])
+	if resolvedVersion == "" {
+		resolvedVersion = pkg.ResolvedVersion
+	}
+
+	daemonURL := ""
+	if daemonPath, ok := metadataString(pkg.Variant.Metadata, "stableDaemonArtifactPath"); ok && daemonPath != "" {
+		daemonURL = manifestSiblingURL(anyString(relatedCLI["manifest_url"]), daemonPath)
+	}
+
+	metadata := map[string]any{}
+	if daemonURL != "" {
+		metadata["daemonUrl"] = daemonURL
+	}
+
+	return &api.ResolvedPackage{
+		Name:            pkg.Name,
+		Title:           pkg.Title,
+		Description:     pkg.Description,
+		Homepage:        pkg.Homepage,
+		LatestVersion:   resolvedVersion,
+		ResolvedVersion: resolvedVersion,
+		Variant: api.PackageVariant{
+			ID:                "linux-cli",
+			Label:             "Linux CLI",
+			OS:                "linux",
+			DownloadURL:       downloadURL,
+			InstallStrategy:   "linux-cli-wrapper",
+			UninstallStrategy: "linux-cli-wrapper-remove",
+			InstallRoot:       "$HOME/.local/share/neuralv-shell",
+			BinaryName:        "neuralv-shell",
+			WrapperName:       "neuralv",
+			Metadata:          metadata,
+		},
+	}, nil
 }
 
 func resolveLauncherPath(pkg *api.ResolvedPackage, installRoot string, fallbacks ...string) string {
@@ -1382,9 +1498,9 @@ func unifiedDesktopComponents(client *api.Client, name, version string) ([]api.R
 	variantIDs := []string{}
 	switch runtime.GOOS {
 	case "linux":
-		variantIDs = []string{"linux-gui", "linux-cli"}
+		variantIDs = []string{"linux"}
 	case "windows":
-		variantIDs = []string{"windows-gui"}
+		variantIDs = []string{"windows"}
 	default:
 		return nil, fmt.Errorf("unified desktop package %s пока не поддерживается на %s", name, runtime.GOOS)
 	}
@@ -1417,9 +1533,9 @@ func uninstallUnifiedDesktopProduct(client *api.Client, installedState *state.Fi
 	variantIDs := []string{}
 	switch runtime.GOOS {
 	case "linux":
-		variantIDs = []string{"linux-gui", "linux-cli"}
+		variantIDs = []string{"linux"}
 	case "windows":
-		variantIDs = []string{"windows-gui"}
+		variantIDs = []string{"windows"}
 	default:
 		return fmt.Errorf("unified desktop package %s пока не поддерживается на %s", name, runtime.GOOS)
 	}
@@ -1450,8 +1566,33 @@ func uninstallUnifiedDesktopProduct(client *api.Client, installedState *state.Fi
 		}
 	}
 
+	if runtime.GOOS == "linux" {
+		if err := removeUnifiedLinuxCLICompanion(); err != nil {
+			return err
+		}
+	}
+
 	if err := state.Save(installedState); err != nil {
 		return fmt.Errorf("пакет удален, но локальное состояние не обновлено: %w", err)
+	}
+	return nil
+}
+
+func removeUnifiedLinuxCLICompanion() error {
+	installRoot, err := resolveInstallRoot("$HOME/.local/share/neuralv-shell", filepath.Join("$HOME", ".local", "share", "neuralv-shell"))
+	if err != nil {
+		return err
+	}
+	if err := os.RemoveAll(installRoot); err != nil {
+		return err
+	}
+
+	wrapperDir, err := resolveInstallRoot("$HOME/.local/bin", filepath.Join("$HOME", ".local", "bin"))
+	if err != nil {
+		return err
+	}
+	if err := os.Remove(filepath.Join(wrapperDir, "neuralv")); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
 	}
 	return nil
 }
