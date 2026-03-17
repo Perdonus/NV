@@ -44,7 +44,6 @@
               "branch": "windows-builds",
               "platform": "windows"
             },
-            "publishPayloadRoot": "windows/NeuralV/",
             "portableArtifactPath": "windows/neuralv-windows.zip",
             "setupArtifactPath": "windows/neuralv-setup.exe",
             "stablePortableArtifactPath": "windows/neuralv-windows.zip",
