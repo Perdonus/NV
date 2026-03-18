@@ -369,6 +369,7 @@ func installLinuxPortableTarPackage(pkg *api.ResolvedPackage) error {
 	}
 	defer os.RemoveAll(tmpDir)
 
+	step(1, 5, "получаем пакет")
 	step(2, 5, "скачиваем архив")
 	archivePath := filepath.Join(tmpDir, "package.tar.gz")
 	if err := downloadRawFile(pkg.Variant.DownloadURL, archivePath); err != nil {
@@ -430,6 +431,7 @@ func installWindowsPortableZipPackage(pkg *api.ResolvedPackage) error {
 	}
 	defer os.RemoveAll(tmpDir)
 
+	step(1, 5, "получаем пакет")
 	step(2, 5, "скачиваем архив")
 	archivePath := filepath.Join(tmpDir, "package.zip")
 	if err := downloadRawFile(pkg.Variant.DownloadURL, archivePath); err != nil {
