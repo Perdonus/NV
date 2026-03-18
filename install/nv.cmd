@@ -2,8 +2,13 @@
 set "REPO=Perdonus/NV"
 set "RAW_BASE=https://raw.githubusercontent.com/%REPO%/windows-builds"
 set "DEFAULT_INSTALL_ROOT=%LOCALAPPDATA%\NV"
+set "REGISTRY_KEY=HKCU:\Software\NV\Packages\lvls-nv-nv-windows"
 set "INSTALL_ROOT=%NV_INSTALL_ROOT%"
 if not "%INSTALL_ROOT%"=="" goto install_root_ready
+for /f "usebackq delims=" %%I in (`powershell -NoProfile -ExecutionPolicy Bypass -Command "$key='%REGISTRY_KEY%'; if (Test-Path $key) { $value=(Get-ItemProperty -Path $key -Name InstallRoot -ErrorAction SilentlyContinue).InstallRoot; if ($value) { [Console]::Out.Write($value) } }" 2^>nul`) do (
+  set "INSTALL_ROOT=%%I"
+  goto install_root_ready
+)
 for /f "usebackq delims=" %%I in (`where nv.exe 2^>nul`) do (
   set "INSTALL_ROOT=%%~dpI"
   goto install_root_ready
@@ -37,7 +42,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$exists=$false; foreach ($part in $parts) { if ($part.TrimEnd('\') -ieq $entry.TrimEnd('\')) { $exists=$true; break } };" ^
   "if (-not $exists) { [Environment]::SetEnvironmentVariable('Path', (($entry) + ';' + $userPath).Trim(';'),'User') }" || exit /b 1
 set "PATH=%INSTALL_ROOT%;%PATH%"
-nv -v > "%TEMP%\nv-version.txt" 2>&1 || (
+"%TARGET%" -v > "%TEMP%\nv-version.txt" 2>&1 || (
   type "%TEMP%\nv-version.txt"
   exit /b 1
 )

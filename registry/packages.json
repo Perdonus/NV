@@ -19,8 +19,8 @@
           "install_root": "%LOCALAPPDATA%/Programs/NeuralV",
           "launcher_path": "NeuralV.exe",
           "binary_name": "neuralv.exe",
-          "install_command": "%LOCALAPPDATA%\\NV\\nv.exe install @lvls/neuralv",
-          "update_command": "%LOCALAPPDATA%\\NV\\nv.exe install @lvls/neuralv",
+          "install_command": "nv install @lvls/neuralv",
+          "update_command": "nv install @lvls/neuralv",
           "update_policy": "startup-auto",
           "auto_update": true,
           "source": {
@@ -54,12 +54,12 @@
             "releaseTagPattern": "windows-v{version}",
             "commands": {
               "powershell": {
-                "install": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"irm https://raw.githubusercontent.com/Perdonus/NV/windows-builds/nv.ps1 | iex; & (Join-Path $env:LOCALAPPDATA 'NV\\nv.exe') install @lvls/neuralv\"",
-                "update": "& (Join-Path $env:LOCALAPPDATA 'NV\\nv.exe') install @lvls/neuralv"
+                "install": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"irm https://raw.githubusercontent.com/Perdonus/NV/windows-builds/nv.ps1 | iex; nv install @lvls/neuralv\"",
+                "update": "nv install @lvls/neuralv"
               },
               "cmd": {
-                "install": "curl.exe -fsSL https://raw.githubusercontent.com/Perdonus/NV/windows-builds/nv.cmd -o \"%TEMP%\\nv-install.cmd\" && cmd /c \"%TEMP%\\nv-install.cmd\" && \"%LOCALAPPDATA%\\NV\\nv.exe\" install @lvls/neuralv",
-                "update": "\"%LOCALAPPDATA%\\NV\\nv.exe\" install @lvls/neuralv"
+                "install": "curl.exe -fsSL https://raw.githubusercontent.com/Perdonus/NV/windows-builds/nv.cmd -o \"%TEMP%\\nv-install.cmd\" && cmd /c \"%TEMP%\\nv-install.cmd\" && nv install @lvls/neuralv",
+                "update": "nv install @lvls/neuralv"
               }
             }
           }
@@ -229,7 +229,7 @@
           "install_root": "%LOCALAPPDATA%/NV",
           "binary_name": "nv.exe",
           "install_command": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"irm https://raw.githubusercontent.com/Perdonus/NV/windows-builds/nv.ps1 | iex\"",
-          "update_command": "%LOCALAPPDATA%\\NV\\nv.exe install @lvls/nv",
+          "update_command": "nv install @lvls/nv",
           "update_policy": "nv-self",
           "auto_update": false,
           "source": {

@@ -5,15 +5,22 @@ $manifest = Invoke-RestMethod "$rawBase/manifest.json"
 $artifact = $manifest.artifacts | Where-Object { $_.platform -eq 'nv-windows' } | Select-Object -First 1
 if (-not $artifact -or -not $artifact.download_url) { throw 'nv-windows artifact not found' }
 $defaultInstallRoot = Join-Path $env:LOCALAPPDATA 'NV'
+$registryKey = 'HKCU:\Software\NV\Packages\lvls-nv-nv-windows'
 $existingCommand = Get-Command nv.exe -ErrorAction SilentlyContinue | Select-Object -First 1
 $installRoot = $null
 if ($env:NV_INSTALL_ROOT) {
     $installRoot = $env:NV_INSTALL_ROOT.Trim()
-} elseif ($existingCommand -and $existingCommand.Source) {
+} elseif (Test-Path $registryKey) {
+    $registryInstallRoot = (Get-ItemProperty -Path $registryKey -Name InstallRoot -ErrorAction SilentlyContinue).InstallRoot
+    if (-not [string]::IsNullOrWhiteSpace($registryInstallRoot)) {
+        $installRoot = $registryInstallRoot.Trim()
+    }
+}
+if (-not $installRoot -and $existingCommand -and $existingCommand.Source) {
     $installRoot = Split-Path -Parent $existingCommand.Source
-} elseif (Test-Path (Join-Path $defaultInstallRoot 'nv.exe')) {
+} elseif (-not $installRoot -and (Test-Path (Join-Path $defaultInstallRoot 'nv.exe'))) {
     $installRoot = $defaultInstallRoot
-} else {
+} elseif (-not $installRoot) {
     $selected = Read-Host "Папка установки NV [$defaultInstallRoot]"
     if ([string]::IsNullOrWhiteSpace($selected)) {
         $installRoot = $defaultInstallRoot
@@ -58,8 +65,7 @@ function Add-UserPathEntry {
 }
 
 Add-UserPathEntry -PathEntry $installRoot
-
-$versionOutput = & nv -v
+$versionOutput = & (Join-Path $installRoot 'nv.exe') -v
 if ($LASTEXITCODE -ne 0) {
     throw 'nv verification failed'
 }
