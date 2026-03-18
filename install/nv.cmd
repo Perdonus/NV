@@ -1,7 +1,21 @@
 @echo off
 set "REPO=Perdonus/NV"
 set "RAW_BASE=https://raw.githubusercontent.com/%REPO%/windows-builds"
-set "INSTALL_ROOT=%LOCALAPPDATA%\NV"
+set "DEFAULT_INSTALL_ROOT=%LOCALAPPDATA%\NV"
+set "INSTALL_ROOT=%NV_INSTALL_ROOT%"
+if not "%INSTALL_ROOT%"=="" goto install_root_ready
+for /f "usebackq delims=" %%I in (`where nv.exe 2^>nul`) do (
+  set "INSTALL_ROOT=%%~dpI"
+  goto install_root_ready
+)
+if exist "%DEFAULT_INSTALL_ROOT%\nv.exe" (
+  set "INSTALL_ROOT=%DEFAULT_INSTALL_ROOT%"
+  goto install_root_ready
+)
+set /p INSTALL_ROOT=Папка установки NV [%DEFAULT_INSTALL_ROOT%]:
+if "%INSTALL_ROOT%"=="" set "INSTALL_ROOT=%DEFAULT_INSTALL_ROOT%"
+:install_root_ready
+if "%INSTALL_ROOT:~-1%"=="\" set "INSTALL_ROOT=%INSTALL_ROOT:~0,-1%"
 set "TARGET=%INSTALL_ROOT%\nv.exe"
 set "WRAPPER=%INSTALL_ROOT%\nv.cmd"
 set "TMP_TARGET=%INSTALL_ROOT%\nv.download.exe"

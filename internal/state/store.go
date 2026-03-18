@@ -24,6 +24,8 @@ type InstalledPackage struct {
 	Package     api.ResolvedPackage `json:"package"`
 	InstalledAt string              `json:"installed_at"`
 	UpdatedAt   string              `json:"updated_at"`
+	InstallRoot string              `json:"install_root,omitempty"`
+	Launcher    string              `json:"launcher,omitempty"`
 }
 
 func New() *File {
@@ -133,16 +135,28 @@ func (f *File) Get(name string) (InstalledPackage, bool) {
 }
 
 func (f *File) Put(pkg api.ResolvedPackage) {
+	f.PutWithLocation(pkg, "", "")
+}
+
+func (f *File) PutWithLocation(pkg api.ResolvedPackage, installRoot, launcher string) {
 	key := normalizeName(pkg.Name)
 	now := time.Now().UTC().Format(time.RFC3339)
 	installedAt := now
 	if existing, ok := f.Packages[key]; ok && existing.InstalledAt != "" {
 		installedAt = existing.InstalledAt
+		if strings.TrimSpace(installRoot) == "" {
+			installRoot = existing.InstallRoot
+		}
+		if strings.TrimSpace(launcher) == "" {
+			launcher = existing.Launcher
+		}
 	}
 	f.Packages[key] = InstalledPackage{
 		Package:     pkg,
 		InstalledAt: installedAt,
 		UpdatedAt:   now,
+		InstallRoot: strings.TrimSpace(installRoot),
+		Launcher:    strings.TrimSpace(launcher),
 	}
 }
 

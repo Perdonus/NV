@@ -16,9 +16,9 @@
           "default": true,
           "install_strategy": "windows-desktop-bundle",
           "uninstall_strategy": "windows-remove-dir",
-          "install_root": "%LOCALAPPDATA%/NeuralV",
+          "install_root": "%LOCALAPPDATA%/Programs/NeuralV",
           "launcher_path": "NeuralV.exe",
-          "binary_name": "neuralv-cmd.exe",
+          "binary_name": "neuralv.exe",
           "install_command": "%LOCALAPPDATA%\\NV\\nv.exe install @lvls/neuralv",
           "update_command": "%LOCALAPPDATA%\\NV\\nv.exe install @lvls/neuralv",
           "update_policy": "startup-auto",
@@ -36,9 +36,10 @@
             "versionSourceFile": "versions/windows.txt",
             "bundledComponents": [
               "gui",
-              "cli"
+              "cli",
+              "updater"
             ],
-            "cliBinary": "neuralv-cmd.exe",
+            "cliBinary": "neuralv.exe",
             "versionSource": {
               "repo": "Perdonus/fatalerror",
               "branch": "windows-builds",
@@ -90,7 +91,8 @@
             "versionSourceFile": "versions/linux-gui.txt",
             "bundledComponents": [
               "gui",
-              "cli"
+              "cli",
+              "updater"
             ],
             "versionSource": {
               "repo": "Perdonus/fatalerror",

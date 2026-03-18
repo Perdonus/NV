@@ -3,8 +3,10 @@ package main
 import (
 	"archive/tar"
 	"archive/zip"
+	"bufio"
 	"compress/gzip"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -33,6 +35,10 @@ const (
 )
 
 var nvVersion = "dev"
+
+type installOptions struct {
+	InstallRootOverride string
+}
 
 func main() {
 	client := api.NewClient(resolveBaseURL())
@@ -76,10 +82,11 @@ func handle(args []string, client *api.Client) error {
 		}
 		return showPackageInfo(client, args[1])
 	case "install":
-		if len(args) < 2 {
-			return errors.New("не хватает спецификации пакета: install <package[@version]>")
+		spec, options, err := parseInstallArgs(args[1:])
+		if err != nil {
+			return err
 		}
-		return installPackage(client, args[1])
+		return installPackage(client, spec, options)
 	case "uninstall":
 		if len(args) < 2 {
 			return errors.New("не хватает имени пакета: uninstall <package>")
@@ -93,7 +100,7 @@ func handle(args []string, client *api.Client) error {
 
 func printHelp() {
 	fmt.Println(`Команды:
-  install <package[@version]>
+  install <package[@version]> [--dir <path>]
   uninstall <package>
   list
   search [query]
@@ -102,7 +109,48 @@ func printHelp() {
   help | -h | --help`)
 }
 
-func installPackage(client *api.Client, spec string) error {
+func parseInstallArgs(args []string) (string, installOptions, error) {
+	var spec string
+	var options installOptions
+
+	for index := 0; index < len(args); index++ {
+		argument := strings.TrimSpace(args[index])
+		if argument == "" {
+			continue
+		}
+
+		switch {
+		case argument == "--dir" || argument == "--path" || argument == "--install-dir":
+			if index+1 >= len(args) {
+				return "", options, errors.New("не хватает пути после --dir")
+			}
+			options.InstallRootOverride = strings.TrimSpace(args[index+1])
+			index++
+		case strings.HasPrefix(argument, "--dir="):
+			options.InstallRootOverride = strings.TrimSpace(strings.TrimPrefix(argument, "--dir="))
+		case strings.HasPrefix(argument, "--path="):
+			options.InstallRootOverride = strings.TrimSpace(strings.TrimPrefix(argument, "--path="))
+		case strings.HasPrefix(argument, "--install-dir="):
+			options.InstallRootOverride = strings.TrimSpace(strings.TrimPrefix(argument, "--install-dir="))
+		case strings.HasPrefix(argument, "--"):
+			return "", options, fmt.Errorf("неизвестный аргумент: %s", argument)
+		case spec == "":
+			spec = argument
+		default:
+			return "", options, fmt.Errorf("лишний аргумент: %s", argument)
+		}
+	}
+
+	if strings.TrimSpace(spec) == "" {
+		return "", options, errors.New("не хватает спецификации пакета: install <package[@version]>")
+	}
+	if strings.TrimSpace(options.InstallRootOverride) != "" {
+		options.InstallRootOverride = filepath.Clean(strings.TrimSpace(options.InstallRootOverride))
+	}
+	return spec, options, nil
+}
+
+func installPackage(client *api.Client, spec string, options installOptions) error {
 	name, version, err := parsePackageSpec(spec)
 	if err != nil {
 		return err
@@ -114,7 +162,7 @@ func installPackage(client *api.Client, spec string) error {
 	}
 
 	if isUnifiedDesktopPackage(name) {
-		return installUnifiedDesktopProduct(client, installedState, name, version)
+		return installUnifiedDesktopProduct(client, installedState, name, version, options)
 	}
 
 	step(1, 3, fmt.Sprintf("получаем пакет %s", name))
@@ -136,8 +184,11 @@ func installPackage(client *api.Client, spec string) error {
 	if normalizedLatestVersion, err := normalizePackageVersion(name, resolved.Package.LatestVersion); err == nil {
 		resolved.Package.LatestVersion = normalizedLatestVersion
 	}
+	if err := applyInstallLocation(&resolved.Package, installedState, options); err != nil {
+		return err
+	}
 	if installed, ok := getInstalledStateRecord(installedState, name); ok {
-		if sameInstalledPackage(installed.Package, resolved.Package) {
+		if sameInstalledPackage(installed.Package, resolved.Package) && sameFilePath(installedRootFromState(installed), resolved.Package.Variant.InstallRoot) {
 			fmt.Printf("Пакет %s уже установлен: %s\n", resolved.Package.Name, resolved.Package.ResolvedVersion)
 			return nil
 		}
@@ -147,11 +198,77 @@ func installPackage(client *api.Client, spec string) error {
 	if err := installResolvedPackage(&resolved.Package); err != nil {
 		return err
 	}
+	if err := persistResolvedInstall(&resolved.Package); err != nil {
+		return err
+	}
 
 	resolved.Package.Name = statePackageName(name, resolved.Package.Variant.ID)
-	installedState.Put(resolved.Package)
+	installedState.PutWithLocation(resolved.Package, strings.TrimSpace(resolved.Package.Variant.InstallRoot), resolvedLauncherPath(&resolved.Package))
 	if err := state.Save(installedState); err != nil {
 		return fmt.Errorf("пакет установлен, но локальное состояние не обновлено: %w", err)
+	}
+	return nil
+}
+
+func applyInstallLocation(pkg *api.ResolvedPackage, installedState *state.File, options installOptions) error {
+	fallbackRoot, err := resolveInstallRoot(pkg.Variant.InstallRoot, defaultInstallRoot(pkg))
+	if err != nil {
+		return err
+	}
+
+	if strings.TrimSpace(options.InstallRootOverride) != "" {
+		overrideRoot, err := resolveInstallRoot(options.InstallRootOverride, fallbackRoot)
+		if err != nil {
+			return err
+		}
+		pkg.Variant.InstallRoot = overrideRoot
+		return nil
+	}
+
+	if runtime.GOOS == "windows" {
+		if currentRoot := resolveCurrentExecutableInstallRoot(pkg); currentRoot != "" {
+			pkg.Variant.InstallRoot = currentRoot
+			return nil
+		}
+		if discoveredRoot := discoverWindowsInstallRoot(pkg, installedState, fallbackRoot); discoveredRoot != "" {
+			pkg.Variant.InstallRoot = discoveredRoot
+			return nil
+		}
+		if interactiveInstallPromptAllowed() {
+			selectedRoot, err := promptWindowsInstallRoot(pkg, fallbackRoot)
+			if err != nil {
+				return err
+			}
+			pkg.Variant.InstallRoot = selectedRoot
+			return nil
+		}
+	}
+
+	if installed, ok := getInstalledStateRecord(installedState, pkg.Name); ok {
+		if rememberedRoot := installedRootFromState(installed); rememberedRoot != "" {
+			pkg.Variant.InstallRoot = rememberedRoot
+			return nil
+		}
+	}
+
+	pkg.Variant.InstallRoot = fallbackRoot
+	return nil
+}
+
+func persistResolvedInstall(pkg *api.ResolvedPackage) error {
+	installRoot := strings.TrimSpace(pkg.Variant.InstallRoot)
+	if installRoot == "" {
+		return nil
+	}
+	launcher := resolvedLauncherPath(pkg)
+
+	if err := writeInstallMetadata(pkg, installRoot, launcher); err != nil {
+		return err
+	}
+	if runtime.GOOS == "windows" {
+		if err := writeWindowsInstallRegistry(pkg, installRoot, launcher); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -298,7 +415,7 @@ func installUnifiedLinuxDesktopPackage(pkg *api.ResolvedPackage) error {
 }
 
 func installWindowsPortableZipPackage(pkg *api.ResolvedPackage) error {
-	installRoot, err := resolveInstallRoot(pkg.Variant.InstallRoot, filepath.Join(`%LOCALAPPDATA%`, pkg.Name))
+	installRoot, err := resolveInstallRoot(pkg.Variant.InstallRoot, defaultInstallRoot(pkg))
 	if err != nil {
 		return err
 	}
@@ -374,7 +491,7 @@ func installUnixBinaryPackage(pkg *api.ResolvedPackage) error {
 }
 
 func installWindowsSelfBinaryPackage(pkg *api.ResolvedPackage) error {
-	installRoot, err := resolveInstallRoot(pkg.Variant.InstallRoot, filepath.Join(`%LOCALAPPDATA%`, pkg.Name))
+	installRoot, err := resolveInstallRoot(pkg.Variant.InstallRoot, defaultInstallRoot(pkg))
 	if err != nil {
 		return err
 	}
@@ -541,6 +658,361 @@ func resolveInstallRoot(configuredRoot, fallback string) (string, error) {
 	}
 
 	return filepath.Clean(root), nil
+}
+
+func defaultInstallRoot(pkg *api.ResolvedPackage) string {
+	switch pkg.Variant.InstallStrategy {
+	case "windows-desktop-bundle", "windows-portable-zip":
+		return filepath.Join(`%LOCALAPPDATA%`, "Programs", "NeuralV")
+	case "windows-self-binary":
+		if normalizePackageName(pkg.Name) == canonicalNVPackage {
+			return filepath.Join(`%LOCALAPPDATA%`, "NV")
+		}
+		return filepath.Join(`%LOCALAPPDATA%`, pkg.Name)
+	case "linux-desktop-unified", "linux-portable-tar":
+		return filepath.Join("$HOME", ".local", "opt", "NeuralV")
+	case "linux-cli-wrapper":
+		return filepath.Join("$HOME", ".local", "share", "neuralv-shell")
+	case "unix-self-binary":
+		return filepath.Join("$HOME", ".local", "bin")
+	default:
+		return pkg.Variant.InstallRoot
+	}
+}
+
+func interactiveInstallPromptAllowed() bool {
+	if strings.EqualFold(strings.TrimSpace(os.Getenv("CI")), "true") {
+		return false
+	}
+	info, err := os.Stdin.Stat()
+	if err != nil {
+		return false
+	}
+	return (info.Mode() & os.ModeCharDevice) != 0
+}
+
+func promptWindowsInstallRoot(pkg *api.ResolvedPackage, defaultRoot string) (string, error) {
+	reader := bufio.NewReader(os.Stdin)
+	fmt.Printf("Папка установки для %s [%s]: ", canonicalPackageKey(pkg.Name), defaultRoot)
+	line, err := reader.ReadString('\n')
+	if err != nil && !errors.Is(err, io.EOF) {
+		return "", fmt.Errorf("не удалось прочитать путь установки: %w", err)
+	}
+	selected := strings.TrimSpace(line)
+	if selected == "" {
+		return defaultRoot, nil
+	}
+	return resolveInstallRoot(selected, defaultRoot)
+}
+
+func resolvedLauncherPath(pkg *api.ResolvedPackage) string {
+	installRoot := strings.TrimSpace(pkg.Variant.InstallRoot)
+	if installRoot == "" {
+		return ""
+	}
+
+	candidates := make([]string, 0, 6)
+	if launcher := strings.TrimSpace(pkg.Variant.LauncherPath); launcher != "" {
+		candidates = append(candidates, launcher)
+	}
+	if gui, ok := metadataString(pkg.Variant.Metadata, "guiBinaryName"); ok && gui != "" {
+		candidates = append(candidates, gui)
+	}
+	if launcher, ok := metadataString(pkg.Variant.Metadata, "launcherBinaryName"); ok && launcher != "" {
+		candidates = append(candidates, launcher)
+	}
+	if binaryName := strings.TrimSpace(pkg.Variant.BinaryName); binaryName != "" {
+		candidates = append(candidates, binaryName)
+	}
+	candidates = append(candidates, "NeuralV.exe", "bin/NeuralV", pkg.Name)
+
+	return resolveLauncherPath(pkg, installRoot, candidates...)
+}
+
+func installedRootFromState(record state.InstalledPackage) string {
+	if strings.TrimSpace(record.InstallRoot) != "" {
+		return strings.TrimSpace(record.InstallRoot)
+	}
+	if strings.TrimSpace(record.Package.Variant.InstallRoot) != "" {
+		return strings.TrimSpace(record.Package.Variant.InstallRoot)
+	}
+	return ""
+}
+
+type installMetadata struct {
+	Package       string `json:"package"`
+	VariantID     string `json:"variant_id"`
+	InstallRoot   string `json:"install_root"`
+	Launcher      string `json:"launcher"`
+	BinaryName    string `json:"binary_name"`
+	Version       string `json:"version"`
+	UpdatedAt     string `json:"updated_at"`
+	InstallSource string `json:"install_source"`
+}
+
+func installMetadataFileName() string {
+	return "nv-package.json"
+}
+
+func writeInstallMetadata(pkg *api.ResolvedPackage, installRoot, launcher string) error {
+	if strings.TrimSpace(installRoot) == "" {
+		return nil
+	}
+
+	payload := installMetadata{
+		Package:       canonicalPackageKey(pkg.Name),
+		VariantID:     strings.TrimSpace(pkg.Variant.ID),
+		InstallRoot:   installRoot,
+		Launcher:      launcher,
+		BinaryName:    strings.TrimSpace(pkg.Variant.BinaryName),
+		Version:       strings.TrimSpace(pkg.ResolvedVersion),
+		UpdatedAt:     time.Now().UTC().Format(time.RFC3339),
+		InstallSource: "nv",
+	}
+
+	if err := os.MkdirAll(installRoot, 0o755); err != nil {
+		return fmt.Errorf("не удалось подготовить папку установки: %w", err)
+	}
+
+	data, err := json.MarshalIndent(payload, "", "  ")
+	if err != nil {
+		return fmt.Errorf("не удалось записать install metadata: %w", err)
+	}
+	data = append(data, '\n')
+	return os.WriteFile(filepath.Join(installRoot, installMetadataFileName()), data, 0o644)
+}
+
+func readInstallMetadata(path string) (*installMetadata, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+
+	var payload installMetadata
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return nil, err
+	}
+	return &payload, nil
+}
+
+func installMetadataMatches(pkg *api.ResolvedPackage, payload *installMetadata) bool {
+	if payload == nil {
+		return false
+	}
+	if canonicalPackageKey(payload.Package) != canonicalPackageKey(pkg.Name) {
+		return false
+	}
+	if strings.TrimSpace(payload.VariantID) == "" {
+		return true
+	}
+	return strings.EqualFold(strings.TrimSpace(payload.VariantID), strings.TrimSpace(pkg.Variant.ID))
+}
+
+func resolveCurrentExecutableInstallRoot(pkg *api.ResolvedPackage) string {
+	if normalizePackageName(pkg.Name) != canonicalNVPackage {
+		return ""
+	}
+	currentExecutable, err := os.Executable()
+	if err != nil || strings.TrimSpace(currentExecutable) == "" {
+		return ""
+	}
+	return filepath.Dir(currentExecutable)
+}
+
+func discoverWindowsInstallRoot(pkg *api.ResolvedPackage, installedState *state.File, fallbackRoot string) string {
+	candidates := make([]string, 0, 8)
+	if installed, ok := getInstalledStateRecord(installedState, pkg.Name); ok {
+		if remembered := installedRootFromState(installed); remembered != "" {
+			candidates = append(candidates, remembered)
+		}
+	}
+	if registryRoot := readWindowsInstallRegistry(pkg); registryRoot != "" {
+		candidates = append(candidates, registryRoot)
+	}
+	if fallbackRoot != "" {
+		candidates = append(candidates, fallbackRoot)
+	}
+
+	for _, candidate := range candidates {
+		if validated := validateInstallRoot(pkg, candidate); validated != "" {
+			return validated
+		}
+	}
+
+	for _, searchRoot := range windowsInstallSearchRoots() {
+		if discovered := searchInstallMetadataRoot(pkg, searchRoot, 3, 1600); discovered != "" {
+			return discovered
+		}
+	}
+	for _, searchRoot := range windowsFixedDriveRoots() {
+		if discovered := searchInstallMetadataRoot(pkg, searchRoot, 2, 1200); discovered != "" {
+			return discovered
+		}
+	}
+	return ""
+}
+
+func validateInstallRoot(pkg *api.ResolvedPackage, candidate string) string {
+	root := strings.TrimSpace(candidate)
+	if root == "" {
+		return ""
+	}
+	root = filepath.Clean(root)
+	if info, err := os.Stat(root); err != nil || !info.IsDir() {
+		return ""
+	}
+
+	metadataPath := filepath.Join(root, installMetadataFileName())
+	if payload, err := readInstallMetadata(metadataPath); err == nil && installMetadataMatches(pkg, payload) {
+		return root
+	}
+
+	launcher := resolvedLauncherPath(pkg)
+	if launcher != "" {
+		launcherName := filepath.Base(launcher)
+		if _, err := os.Stat(filepath.Join(root, launcherName)); err == nil {
+			return root
+		}
+	}
+
+	if binaryName := strings.TrimSpace(pkg.Variant.BinaryName); binaryName != "" {
+		if _, err := os.Stat(filepath.Join(root, binaryName)); err == nil {
+			return root
+		}
+	}
+	if _, err := os.Stat(filepath.Join(root, "NeuralV.exe")); err == nil {
+		return root
+	}
+	return ""
+}
+
+func windowsInstallSearchRoots() []string {
+	roots := make([]string, 0, 8)
+	for _, value := range []string{
+		os.Getenv("LOCALAPPDATA"),
+		os.Getenv("APPDATA"),
+		os.Getenv("USERPROFILE"),
+		os.Getenv("ProgramFiles"),
+		os.Getenv("ProgramFiles(x86)"),
+		os.Getenv("ProgramData"),
+	} {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			roots = append(roots, filepath.Clean(value))
+		}
+	}
+	return roots
+}
+
+func windowsFixedDriveRoots() []string {
+	command := exec.Command(
+		"powershell",
+		"-NoProfile",
+		"-ExecutionPolicy", "Bypass",
+		"-Command",
+		"Get-PSDrive -PSProvider FileSystem | ForEach-Object { [Console]::Out.WriteLine($_.Root) }",
+	)
+	command.Stderr = io.Discard
+	output, err := command.Output()
+	if err != nil {
+		return nil
+	}
+
+	lines := strings.Split(string(output), "\n")
+	roots := make([]string, 0, len(lines))
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		roots = append(roots, filepath.Clean(line))
+	}
+	return roots
+}
+
+func searchInstallMetadataRoot(pkg *api.ResolvedPackage, root string, maxDepth, maxDirectories int) string {
+	if strings.TrimSpace(root) == "" {
+		return ""
+	}
+	info, err := os.Stat(root)
+	if err != nil || !info.IsDir() {
+		return ""
+	}
+
+	type queueItem struct {
+		Path  string
+		Depth int
+	}
+	queue := []queueItem{{Path: root, Depth: 0}}
+	visited := 0
+	for len(queue) > 0 && visited < maxDirectories {
+		current := queue[0]
+		queue = queue[1:]
+		visited++
+
+		metadataPath := filepath.Join(current.Path, installMetadataFileName())
+		if payload, err := readInstallMetadata(metadataPath); err == nil && installMetadataMatches(pkg, payload) {
+			return current.Path
+		}
+
+		if current.Depth >= maxDepth {
+			continue
+		}
+
+		entries, err := os.ReadDir(current.Path)
+		if err != nil {
+			continue
+		}
+		for _, entry := range entries {
+			if !entry.IsDir() {
+				continue
+			}
+			queue = append(queue, queueItem{Path: filepath.Join(current.Path, entry.Name()), Depth: current.Depth + 1})
+			if len(queue)+visited >= maxDirectories {
+				break
+			}
+		}
+	}
+	return ""
+}
+
+func windowsRegistryPackageKey(pkg *api.ResolvedPackage) string {
+	key := safeFilesystemToken(canonicalPackageKey(pkg.Name))
+	if variant := safeFilesystemToken(pkg.Variant.ID); variant != "" {
+		key += "-" + variant
+	}
+	return key
+}
+
+func writeWindowsInstallRegistry(pkg *api.ResolvedPackage, installRoot, launcher string) error {
+	keyPath := `HKCU:\Software\NV\Packages\` + windowsRegistryPackageKey(pkg)
+	script := strings.Join([]string{
+		fmt.Sprintf("$key = '%s'", escapePowerShellString(keyPath)),
+		"if (-not (Test-Path $key)) { New-Item -Path $key -Force | Out-Null }",
+		fmt.Sprintf("Set-ItemProperty -Path $key -Name InstallRoot -Value '%s'", escapePowerShellString(installRoot)),
+		fmt.Sprintf("Set-ItemProperty -Path $key -Name LauncherPath -Value '%s'", escapePowerShellString(launcher)),
+		fmt.Sprintf("Set-ItemProperty -Path $key -Name Version -Value '%s'", escapePowerShellString(pkg.ResolvedVersion)),
+		fmt.Sprintf("Set-ItemProperty -Path $key -Name Package -Value '%s'", escapePowerShellString(canonicalPackageKey(pkg.Name))),
+		fmt.Sprintf("Set-ItemProperty -Path $key -Name Variant -Value '%s'", escapePowerShellString(pkg.Variant.ID)),
+	}, "\n")
+	return runPowerShellScript(script)
+}
+
+func readWindowsInstallRegistry(pkg *api.ResolvedPackage) string {
+	keyPath := `HKCU:\Software\NV\Packages\` + windowsRegistryPackageKey(pkg)
+	command := exec.Command(
+		"powershell",
+		"-NoProfile",
+		"-ExecutionPolicy", "Bypass",
+		"-Command",
+		fmt.Sprintf("$key='%s'; if (Test-Path $key) { $value=(Get-ItemProperty -Path $key -Name InstallRoot -ErrorAction SilentlyContinue).InstallRoot; if ($value) { [Console]::Out.Write($value) } }", escapePowerShellString(keyPath)),
+	)
+	command.Stderr = io.Discard
+	output, err := command.Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(output))
 }
 
 func metadataString(metadata map[string]any, key string) (string, bool) {
@@ -1607,7 +2079,7 @@ func getInstalledStateRecord(installedState *state.File, name string) (state.Ins
 	return state.InstalledPackage{}, false
 }
 
-func installUnifiedDesktopProduct(client *api.Client, installedState *state.File, name, version string) error {
+func installUnifiedDesktopProduct(client *api.Client, installedState *state.File, name, version string, options installOptions) error {
 	components, err := unifiedDesktopComponents(client, name, version)
 	if err != nil {
 		return err
@@ -1615,8 +2087,11 @@ func installUnifiedDesktopProduct(client *api.Client, installedState *state.File
 	for index, component := range components {
 		componentState := component
 		componentState.Name = statePackageName(name, component.Variant.ID)
+		if err := applyInstallLocation(&componentState, installedState, options); err != nil {
+			return err
+		}
 		if installed, ok := getInstalledStateRecord(installedState, componentState.Name); ok {
-			if sameInstalledPackage(installed.Package, componentState) {
+			if sameInstalledPackage(installed.Package, componentState) && sameFilePath(installedRootFromState(installed), componentState.Variant.InstallRoot) {
 				fmt.Printf("Компонент %s уже установлен: %s\n", component.Variant.Label, component.ResolvedVersion)
 				continue
 			}
@@ -1625,10 +2100,13 @@ func installUnifiedDesktopProduct(client *api.Client, installedState *state.File
 		if index == 0 {
 			fmt.Printf("Устанавливаем unified desktop package %s\n", name)
 		}
-		if err := installResolvedPackage(&component); err != nil {
+		if err := installResolvedPackage(&componentState); err != nil {
 			return err
 		}
-		installedState.Put(componentState)
+		if err := persistResolvedInstall(&componentState); err != nil {
+			return err
+		}
+		installedState.PutWithLocation(componentState, strings.TrimSpace(componentState.Variant.InstallRoot), resolvedLauncherPath(&componentState))
 	}
 	if err := state.Save(installedState); err != nil {
 		return fmt.Errorf("пакет установлен, но локальное состояние не обновлено: %w", err)
