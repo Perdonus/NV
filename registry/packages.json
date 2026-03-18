@@ -40,6 +40,27 @@
               "updater"
             ],
             "cliBinary": "neuralv.exe",
+            "layout": "root-bin-libs",
+            "rootEntries": [
+              "NeuralV.exe",
+              "log.txt",
+              "bin",
+              "libs"
+            ],
+            "cliBinaryName": "neuralv.exe",
+            "cliRelativePath": "bin/neuralv.exe",
+            "cliHostBinaryName": "neuralv-host.exe",
+            "cliHostRelativePath": "libs/neuralv-host.exe",
+            "launcherBinaryName": "NeuralV.exe",
+            "guiBinaryName": "NeuralV.Gui.exe",
+            "guiRelativePath": "libs/NeuralV.Gui.exe",
+            "updaterBinaryName": "neuralv-updater.exe",
+            "updaterRelativePath": "bin/neuralv-updater.exe",
+            "updaterHostBinaryName": "neuralv-updater-host.exe",
+            "updaterHostRelativePath": "libs/neuralv-updater-host.exe",
+            "logRelativePath": "log.txt",
+            "binDirectory": "bin",
+            "libsDirectory": "libs",
             "versionSource": {
               "repo": "Perdonus/fatalerror",
               "branch": "windows-builds",

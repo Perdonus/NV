@@ -454,7 +454,7 @@ func installWindowsPortableZipPackage(pkg *api.ResolvedPackage) error {
 	if err := ensureWindowsShortcuts(pkg, installRoot); err != nil {
 		return err
 	}
-	if err := ensureWindowsUserPath(installRoot); err != nil {
+	if err := ensureWindowsUserPath(resolvedWindowsBinDir(pkg, installRoot)); err != nil {
 		return err
 	}
 
@@ -715,6 +715,9 @@ func resolvedLauncherPath(pkg *api.ResolvedPackage) string {
 	if launcher := strings.TrimSpace(pkg.Variant.LauncherPath); launcher != "" {
 		candidates = append(candidates, launcher)
 	}
+	if guiRelativePath, ok := metadataString(pkg.Variant.Metadata, "guiRelativePath"); ok && guiRelativePath != "" {
+		candidates = append(candidates, guiRelativePath)
+	}
 	if gui, ok := metadataString(pkg.Variant.Metadata, "guiBinaryName"); ok && gui != "" {
 		candidates = append(candidates, gui)
 	}
@@ -727,6 +730,37 @@ func resolvedLauncherPath(pkg *api.ResolvedPackage) string {
 	candidates = append(candidates, "NeuralV.exe", "bin/NeuralV", pkg.Name)
 
 	return resolveLauncherPath(pkg, installRoot, candidates...)
+}
+
+func resolvedWindowsBinDir(pkg *api.ResolvedPackage, installRoot string) string {
+	if runtime.GOOS != "windows" {
+		return installRoot
+	}
+	if binDirectory, ok := metadataString(pkg.Variant.Metadata, "binDirectory"); ok && strings.TrimSpace(binDirectory) != "" {
+		return filepath.Join(installRoot, filepath.FromSlash(strings.TrimSpace(binDirectory)))
+	}
+	if cliRelativePath, ok := metadataString(pkg.Variant.Metadata, "cliRelativePath"); ok && strings.TrimSpace(cliRelativePath) != "" {
+		return filepath.Dir(filepath.Join(installRoot, filepath.FromSlash(strings.TrimSpace(cliRelativePath))))
+	}
+	return installRoot
+}
+
+func resolvedWindowsCliPath(pkg *api.ResolvedPackage, installRoot string) string {
+	if runtime.GOOS != "windows" {
+		return ""
+	}
+	if cliRelativePath, ok := metadataString(pkg.Variant.Metadata, "cliRelativePath"); ok && strings.TrimSpace(cliRelativePath) != "" {
+		return filepath.Join(installRoot, filepath.FromSlash(strings.TrimSpace(cliRelativePath)))
+	}
+	cliName := strings.TrimSpace(pkg.Variant.BinaryName)
+	if cliName == "" {
+		if cliBinaryName, ok := metadataString(pkg.Variant.Metadata, "cliBinaryName"); ok && strings.TrimSpace(cliBinaryName) != "" {
+			cliName = strings.TrimSpace(cliBinaryName)
+		} else {
+			cliName = "neuralv.exe"
+		}
+	}
+	return filepath.Join(resolvedWindowsBinDir(pkg, installRoot), filepath.Base(filepath.FromSlash(cliName)))
 }
 
 func installedRootFromState(record state.InstalledPackage) string {
@@ -838,14 +872,23 @@ func discoverWindowsInstallRoot(pkg *api.ResolvedPackage, installedState *state.
 			return validated
 		}
 	}
+	for _, candidate := range candidates {
+		parent := strings.TrimSpace(filepath.Dir(strings.TrimSpace(candidate)))
+		if parent == "" || parent == "." {
+			continue
+		}
+		if discovered := searchInstallMetadataRoot(pkg, parent, 3, 900); discovered != "" {
+			return discovered
+		}
+	}
 
 	for _, searchRoot := range windowsInstallSearchRoots() {
-		if discovered := searchInstallMetadataRoot(pkg, searchRoot, 3, 1600); discovered != "" {
+		if discovered := searchInstallMetadataRoot(pkg, searchRoot, 4, 2400); discovered != "" {
 			return discovered
 		}
 	}
 	for _, searchRoot := range windowsFixedDriveRoots() {
-		if discovered := searchInstallMetadataRoot(pkg, searchRoot, 2, 1200); discovered != "" {
+		if discovered := searchInstallMetadataRoot(pkg, searchRoot, 3, 2200); discovered != "" {
 			return discovered
 		}
 	}
@@ -867,16 +910,25 @@ func validateInstallRoot(pkg *api.ResolvedPackage, candidate string) string {
 		return root
 	}
 
+	originalRoot := pkg.Variant.InstallRoot
+	pkg.Variant.InstallRoot = root
 	launcher := resolvedLauncherPath(pkg)
+	pkg.Variant.InstallRoot = originalRoot
 	if launcher != "" {
-		launcherName := filepath.Base(launcher)
-		if _, err := os.Stat(filepath.Join(root, launcherName)); err == nil {
+		if _, err := os.Stat(launcher); err == nil {
 			return root
+		}
+	}
+	if runtime.GOOS == "windows" {
+		if cliPath := resolvedWindowsCliPath(pkg, root); cliPath != "" {
+			if _, err := os.Stat(cliPath); err == nil {
+				return root
+			}
 		}
 	}
 
 	if binaryName := strings.TrimSpace(pkg.Variant.BinaryName); binaryName != "" {
-		if _, err := os.Stat(filepath.Join(root, binaryName)); err == nil {
+		if _, err := os.Stat(filepath.Join(root, filepath.Base(binaryName))); err == nil {
 			return root
 		}
 	}
