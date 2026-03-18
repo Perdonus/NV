@@ -863,6 +863,7 @@ func discoverWindowsInstallRoot(pkg *api.ResolvedPackage, installedState *state.
 	if registryRoot := readWindowsInstallRegistry(pkg); registryRoot != "" {
 		candidates = append(candidates, registryRoot)
 	}
+	candidates = append(candidates, windowsShortcutInstallRoots(pkg)...)
 	if fallbackRoot != "" {
 		candidates = append(candidates, fallbackRoot)
 	}
@@ -893,6 +894,89 @@ func discoverWindowsInstallRoot(pkg *api.ResolvedPackage, installedState *state.
 		}
 	}
 	return ""
+}
+
+func windowsShortcutInstallRoots(pkg *api.ResolvedPackage) []string {
+	if runtime.GOOS != "windows" {
+		return nil
+	}
+
+	shortcutPaths := []string{}
+	if appData := strings.TrimSpace(os.Getenv("APPDATA")); appData != "" {
+		shortcutPaths = append(shortcutPaths, filepath.Join(appData, "Microsoft", "Windows", "Start Menu", "Programs", "NeuralV.lnk"))
+	}
+	if userProfile := strings.TrimSpace(os.Getenv("USERPROFILE")); userProfile != "" {
+		shortcutPaths = append(shortcutPaths, filepath.Join(userProfile, "Desktop", "NeuralV.lnk"))
+	}
+	if publicDir := strings.TrimSpace(os.Getenv("PUBLIC")); publicDir != "" {
+		shortcutPaths = append(shortcutPaths, filepath.Join(publicDir, "Desktop", "NeuralV.lnk"))
+	}
+
+	roots := make([]string, 0, len(shortcutPaths)*2)
+	seen := map[string]struct{}{}
+	for _, shortcutPath := range shortcutPaths {
+		for _, root := range readWindowsShortcutInstallRoots(shortcutPath) {
+			if validated := validateInstallRoot(pkg, root); validated != "" {
+				key := strings.ToLower(filepath.Clean(validated))
+				if _, ok := seen[key]; ok {
+					continue
+				}
+				seen[key] = struct{}{}
+				roots = append(roots, validated)
+			}
+		}
+	}
+	return roots
+}
+
+func readWindowsShortcutInstallRoots(shortcutPath string) []string {
+	shortcutPath = strings.TrimSpace(shortcutPath)
+	if shortcutPath == "" {
+		return nil
+	}
+	if _, err := os.Stat(shortcutPath); err != nil {
+		return nil
+	}
+
+	script := strings.Join([]string{
+		fmt.Sprintf("$shortcutPath = '%s'", escapePowerShellString(shortcutPath)),
+		"if (-not (Test-Path $shortcutPath)) { exit 0 }",
+		"$WshShell = New-Object -ComObject WScript.Shell",
+		"$shortcut = $WshShell.CreateShortcut($shortcutPath)",
+		"if ($shortcut.TargetPath) { [Console]::Out.WriteLine($shortcut.TargetPath) }",
+		"if ($shortcut.WorkingDirectory) { [Console]::Out.WriteLine($shortcut.WorkingDirectory) }",
+	}, "\n")
+
+	command := exec.Command("powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script)
+	command.Stderr = io.Discard
+	output, err := command.Output()
+	if err != nil {
+		return nil
+	}
+
+	roots := []string{}
+	seen := map[string]struct{}{}
+	for _, line := range strings.Split(string(output), "\n") {
+		candidate := strings.TrimSpace(line)
+		if candidate == "" {
+			continue
+		}
+		root := candidate
+		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+			root = filepath.Dir(candidate)
+		}
+		root = filepath.Clean(root)
+		if root == "" || root == "." {
+			continue
+		}
+		key := strings.ToLower(root)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		roots = append(roots, root)
+	}
+	return roots
 }
 
 func validateInstallRoot(pkg *api.ResolvedPackage, candidate string) string {
