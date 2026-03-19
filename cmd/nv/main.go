@@ -34,6 +34,8 @@ const (
 	canonicalNVPackage      = "@lvls/nv"
 )
 
+var defaultWindowsProtocolSchemes = []string{"shieldsecurity", "neuralv"}
+
 var nvVersion = "dev"
 
 type installOptions struct {
@@ -459,6 +461,9 @@ func installWindowsPortableZipPackage(pkg *api.ResolvedPackage) error {
 	if err := ensureWindowsUserPath(resolvedWindowsBinDir(pkg, installRoot)); err != nil {
 		return err
 	}
+	if err := ensureWindowsProtocolHandlers(pkg, installRoot); err != nil {
+		return err
+	}
 
 	fmt.Printf("Пакет %s установлен или обновлен до версии %s\n", pkg.Name, pkg.ResolvedVersion)
 	fmt.Printf("Путь: %s\n", installRoot)
@@ -765,6 +770,19 @@ func resolvedWindowsCliPath(pkg *api.ResolvedPackage, installRoot string) string
 	return filepath.Join(resolvedWindowsBinDir(pkg, installRoot), filepath.Base(filepath.FromSlash(cliName)))
 }
 
+func windowsProtocolSchemes(pkg *api.ResolvedPackage) []string {
+	if runtime.GOOS != "windows" {
+		return nil
+	}
+	if schemes := metadataStringList(pkg.Variant.Metadata, "protocolSchemes"); len(schemes) > 0 {
+		return schemes
+	}
+	if normalizePackageName(pkg.Name) == canonicalNeuralVPackage {
+		return append([]string(nil), defaultWindowsProtocolSchemes...)
+	}
+	return nil
+}
+
 func installedRootFromState(record state.InstalledPackage) string {
 	if strings.TrimSpace(record.InstallRoot) != "" {
 		return strings.TrimSpace(record.InstallRoot)
@@ -784,6 +802,8 @@ type installMetadata struct {
 	Version       string `json:"version"`
 	UpdatedAt     string `json:"updated_at"`
 	InstallSource string `json:"install_source"`
+	ProtocolSchemes []string `json:"protocol_schemes,omitempty"`
+	ProtocolHandler string `json:"protocol_handler,omitempty"`
 }
 
 func installMetadataFileName() string {
@@ -795,15 +815,22 @@ func writeInstallMetadata(pkg *api.ResolvedPackage, installRoot, launcher string
 		return nil
 	}
 
+	protocolSchemes := []string{}
+	if runtime.GOOS == "windows" {
+		protocolSchemes = windowsProtocolSchemes(pkg)
+	}
+
 	payload := installMetadata{
-		Package:       canonicalPackageKey(pkg.Name),
-		VariantID:     strings.TrimSpace(pkg.Variant.ID),
-		InstallRoot:   installRoot,
-		Launcher:      launcher,
-		BinaryName:    strings.TrimSpace(pkg.Variant.BinaryName),
-		Version:       strings.TrimSpace(pkg.ResolvedVersion),
-		UpdatedAt:     time.Now().UTC().Format(time.RFC3339),
-		InstallSource: "nv",
+		Package:         canonicalPackageKey(pkg.Name),
+		VariantID:       strings.TrimSpace(pkg.Variant.ID),
+		InstallRoot:     installRoot,
+		Launcher:        launcher,
+		BinaryName:      strings.TrimSpace(pkg.Variant.BinaryName),
+		Version:         strings.TrimSpace(pkg.ResolvedVersion),
+		UpdatedAt:       time.Now().UTC().Format(time.RFC3339),
+		InstallSource:   "nv",
+		ProtocolSchemes: protocolSchemes,
+		ProtocolHandler: launcher,
 	}
 
 	if err := os.MkdirAll(installRoot, 0o755); err != nil {
@@ -1124,6 +1151,7 @@ func windowsRegistryPackageKey(pkg *api.ResolvedPackage) string {
 
 func writeWindowsInstallRegistry(pkg *api.ResolvedPackage, installRoot, launcher string) error {
 	keyPath := `HKCU:\Software\NV\Packages\` + windowsRegistryPackageKey(pkg)
+	protocolSchemes := strings.Join(windowsProtocolSchemes(pkg), ",")
 	script := strings.Join([]string{
 		fmt.Sprintf("$key = '%s'", escapePowerShellString(keyPath)),
 		"if (-not (Test-Path $key)) { New-Item -Path $key -Force | Out-Null }",
@@ -1132,6 +1160,8 @@ func writeWindowsInstallRegistry(pkg *api.ResolvedPackage, installRoot, launcher
 		fmt.Sprintf("Set-ItemProperty -Path $key -Name Version -Value '%s'", escapePowerShellString(pkg.ResolvedVersion)),
 		fmt.Sprintf("Set-ItemProperty -Path $key -Name Package -Value '%s'", escapePowerShellString(canonicalPackageKey(pkg.Name))),
 		fmt.Sprintf("Set-ItemProperty -Path $key -Name Variant -Value '%s'", escapePowerShellString(pkg.Variant.ID)),
+		fmt.Sprintf("Set-ItemProperty -Path $key -Name ProtocolHandlerPath -Value '%s'", escapePowerShellString(launcher)),
+		fmt.Sprintf("Set-ItemProperty -Path $key -Name ProtocolSchemes -Value '%s'", escapePowerShellString(protocolSchemes)),
 	}, "\n")
 	return runPowerShellScript(script)
 }
@@ -1163,6 +1193,38 @@ func metadataString(metadata map[string]any, key string) (string, bool) {
 	}
 	text, ok := value.(string)
 	return text, ok
+}
+
+func metadataStringList(metadata map[string]any, key string) []string {
+	if metadata == nil {
+		return nil
+	}
+	raw, ok := metadata[key]
+	if !ok {
+		return nil
+	}
+	items, ok := raw.([]any)
+	if !ok {
+		return nil
+	}
+	result := make([]string, 0, len(items))
+	seen := map[string]struct{}{}
+	for _, item := range items {
+		text, ok := item.(string)
+		if !ok {
+			continue
+		}
+		text = strings.TrimSpace(strings.ToLower(text))
+		if text == "" {
+			continue
+		}
+		if _, ok := seen[text]; ok {
+			continue
+		}
+		seen[text] = struct{}{}
+		result = append(result, text)
+	}
+	return result
 }
 
 func metadataObjectList(metadata map[string]any, key string) []map[string]any {
@@ -1397,6 +1459,73 @@ func ensureWindowsUserPath(installRoot string) error {
 	}, "\n")
 
 	return runPowerShellScript(script)
+}
+
+func ensureWindowsProtocolHandlers(pkg *api.ResolvedPackage, installRoot string) error {
+	schemes := windowsProtocolSchemes(pkg)
+	if len(schemes) == 0 {
+		return nil
+	}
+
+	launcher := resolveLauncherPath(pkg, installRoot, "NeuralV.exe")
+	if _, err := os.Stat(launcher); err != nil {
+		return fmt.Errorf("launcher не найден для регистрации URI scheme: %w", err)
+	}
+
+	commandValue := fmt.Sprintf("\"%s\" \"%%1\"", launcher)
+	scriptLines := []string{
+		fmt.Sprintf("$launcher = '%s'", escapePowerShellString(launcher)),
+		fmt.Sprintf("$command = '%s'", escapePowerShellString(commandValue)),
+	}
+	for index, scheme := range schemes {
+		keyVar := fmt.Sprintf("$schemeKey%d", index)
+		rootKey := fmt.Sprintf("HKCU:\\Software\\Classes\\%s", scheme)
+		scriptLines = append(scriptLines,
+			fmt.Sprintf("%s = '%s'", keyVar, escapePowerShellString(rootKey)),
+			fmt.Sprintf("if (-not (Test-Path %s)) { New-Item -Path %s -Force | Out-Null }", keyVar, keyVar),
+			fmt.Sprintf("Set-Item -Path %s -Value 'URL:NeuralV Protocol'", keyVar),
+			fmt.Sprintf("Set-ItemProperty -Path %s -Name 'URL Protocol' -Value ''", keyVar),
+			fmt.Sprintf("Set-ItemProperty -Path %s -Name 'FriendlyTypeName' -Value 'NeuralV Link'", keyVar),
+			fmt.Sprintf("$iconKey%d = Join-Path %s 'DefaultIcon'", index, keyVar),
+			fmt.Sprintf("if (-not (Test-Path $iconKey%d)) { New-Item -Path $iconKey%d -Force | Out-Null }", index, index),
+			fmt.Sprintf("Set-Item -Path $iconKey%d -Value ($launcher + ',0')", index),
+			fmt.Sprintf("$commandKey%d = Join-Path %s 'shell\\open\\command'", index, keyVar),
+			fmt.Sprintf("if (-not (Test-Path $commandKey%d)) { New-Item -Path $commandKey%d -Force | Out-Null }", index, index),
+			fmt.Sprintf("Set-Item -Path $commandKey%d -Value $command", index),
+		)
+	}
+	return runPowerShellScript(strings.Join(scriptLines, "\n"))
+}
+
+func removeWindowsProtocolHandlers(pkg *api.ResolvedPackage, installRoot string) error {
+	schemes := windowsProtocolSchemes(pkg)
+	if len(schemes) == 0 {
+		return nil
+	}
+
+	launcher := resolveLauncherPath(pkg, installRoot, "NeuralV.exe")
+	scriptLines := []string{
+		fmt.Sprintf("$launcher = '%s'", escapePowerShellString(launcher)),
+		"$launcherTrimmed = $launcher.Trim().ToLowerInvariant()",
+	}
+	for index, scheme := range schemes {
+		keyVar := fmt.Sprintf("$schemeKey%d", index)
+		commandItemVar := fmt.Sprintf("$commandItem%d", index)
+		commandVar := fmt.Sprintf("$commandValue%d", index)
+		commandKeyVar := fmt.Sprintf("$commandKey%d", index)
+		rootKey := fmt.Sprintf("HKCU:\\Software\\Classes\\%s", scheme)
+		scriptLines = append(scriptLines,
+			fmt.Sprintf("%s = '%s'", keyVar, escapePowerShellString(rootKey)),
+			fmt.Sprintf("if (Test-Path %s) {", keyVar),
+			fmt.Sprintf("  %s = Join-Path %s 'shell\\open\\command'", commandKeyVar, keyVar),
+			fmt.Sprintf("  %s = Get-Item %s -ErrorAction SilentlyContinue", commandItemVar, commandKeyVar),
+			fmt.Sprintf("  %s = $null", commandVar),
+			fmt.Sprintf("  if (%s) { %s = %s.GetValue('') }", commandItemVar, commandVar, commandItemVar),
+			fmt.Sprintf("  if (-not %s -or %s.ToLowerInvariant().Contains($launcherTrimmed)) { Remove-Item -Path %s -Recurse -Force -ErrorAction SilentlyContinue }", commandVar, commandVar, keyVar),
+			"}",
+		)
+	}
+	return runPowerShellScript(strings.Join(scriptLines, "\n"))
 }
 
 func createWindowsShortcuts(target, workingDir string, shortcuts ...string) error {
@@ -1812,6 +1941,9 @@ func uninstallResolvedPackage(pkg *api.ResolvedPackage) error {
 	case "windows-remove-dir":
 		root, err := resolveInstallRoot(pkg.Variant.InstallRoot, filepath.Join(`%LOCALAPPDATA%`, pkg.Name))
 		if err != nil {
+			return err
+		}
+		if err := removeWindowsProtocolHandlers(pkg, root); err != nil {
 			return err
 		}
 		if err := os.RemoveAll(root); err != nil {

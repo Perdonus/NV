@@ -58,6 +58,10 @@
             "updaterRelativePath": "bin/neuralv-updater.exe",
             "updaterHostBinaryName": "neuralv-updater-host.exe",
             "updaterHostRelativePath": "libs/neuralv-updater-host.exe",
+            "protocolSchemes": [
+              "shieldsecurity",
+              "neuralv"
+            ],
             "logRelativePath": "log.txt",
             "binDirectory": "bin",
             "libsDirectory": "libs",
