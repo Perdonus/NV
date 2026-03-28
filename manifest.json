@@ -1,0 +1,19 @@
+{
+  "success": true,
+  "generated_at": "2026-03-28T09:40:24Z",
+  "release_channel": "main",
+  "artifacts": [
+    {
+      "platform": "nv-windows",
+      "channel": "main",
+      "version": "1.3.9",
+      "sha256": "f4d2b0fc02837b3dba2473a8625f9c1e6d35796772384dfa6f09183a5eea3dc3",
+      "download_url": "https://github.com/Perdonus/NV/releases/download/nv-v1.3.9/nv-1.3.9.exe",
+      "file_name": "nv-1.3.9.exe",
+      "metadata": {
+        "releaseTag": "nv-v1.3.9",
+        "rawDownloadUrl": "https://raw.githubusercontent.com/Perdonus/NV/windows-builds/windows/nv-1.3.9.exe"
+      }
+    }
+  ]
+}
