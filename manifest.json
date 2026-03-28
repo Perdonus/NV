@@ -1,0 +1,19 @@
+{
+  "success": true,
+  "generated_at": "2026-03-28T09:39:56Z",
+  "release_channel": "main",
+  "artifacts": [
+    {
+      "platform": "nv-linux",
+      "channel": "main",
+      "version": "1.3.9",
+      "sha256": "dc89de78b877ed8e399b1b79e44dae4be279c1135b700f2486e8783284075df3",
+      "download_url": "https://github.com/Perdonus/NV/releases/download/nv-v1.3.9/nv-linux-1.3.9.tar.gz",
+      "file_name": "nv-linux-1.3.9.tar.gz",
+      "metadata": {
+        "releaseTag": "nv-v1.3.9",
+        "rawDownloadUrl": "https://raw.githubusercontent.com/Perdonus/NV/linux-builds/linux/nv-linux-1.3.9.tar.gz"
+      }
+    }
+  ]
+}
