@@ -25,6 +25,8 @@ jobs:
   build-windows:
     name: Build NV Windows
     runs-on: windows-latest
+    outputs:
+      release_version: ${{ steps.version.outputs.semver }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -54,7 +56,19 @@ jobs:
         with:
           name: nv-windows
           path: stage
+      - name: Publish NV Windows release asset
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ needs.build-windows.outputs.release_version }}
+          name: NV ${{ needs.build-windows.outputs.release_version }}
+          target_commitish: ${{ github.sha }}
+          overwrite_files: true
+          files: |
+            stage/nv.exe
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           GITHUB_SHA: ${{ github.sha }}
@@ -63,12 +77,14 @@ jobs:
         run: |
           set -euo pipefail
           semver="$(tr -d '[:space:]' < VERSION)"
+          release_tag="nv-v${semver}"
+          release_base="https://github.com/${GITHUB_REPOSITORY}/releases/download/${release_tag}"
           mkdir -p publish/windows
           cp stage/nv.exe "publish/windows/nv-${semver}.exe"
           cp stage/nv.exe publish/windows/nv.exe
           sha="$(sha256sum "publish/windows/nv-${semver}.exe" | awk '{print $1}')"
           raw_base="https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/windows-builds"
-          export SEMVER="$semver" SHA="$sha" RAW_BASE="$raw_base"
+          export SEMVER="$semver" SHA="$sha" RAW_BASE="$raw_base" RELEASE_TAG="$release_tag" RELEASE_BASE="$release_base"
           python3 - <<'PY'
           import json, os
           from datetime import datetime, timezone
@@ -83,9 +99,12 @@ jobs:
                       'channel': 'main',
                       'version': os.environ['SEMVER'],
                       'sha256': os.environ['SHA'],
-                      'download_url': f"{os.environ['RAW_BASE']}/windows/nv-{os.environ['SEMVER']}.exe",
+                      'download_url': f"{os.environ['RELEASE_BASE']}/nv-{os.environ['SEMVER']}.exe",
                       'file_name': f"nv-{os.environ['SEMVER']}.exe",
-                      'metadata': {}
+                      'metadata': {
+                          'releaseTag': os.environ['RELEASE_TAG'],
+                          'rawDownloadUrl': f"{os.environ['RAW_BASE']}/windows/nv-{os.environ['SEMVER']}.exe"
+                      }
                   }
               ]
           }
@@ -94,6 +113,19 @@ jobs:
           with open('publish/BUILD_INFO.txt','w',encoding='utf-8') as fh:
               fh.write(f"Repository: {os.environ['GITHUB_REPOSITORY']}\nVersion: {os.environ['SEMVER']}\nCommit: {os.environ['GITHUB_SHA']}\nWorkflow Run: {os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}\nBuilt At: {generated_at}\n")
           PY
+          if ! gh release view "$release_tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$release_tag" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" \
+              --title "NV ${semver}" \
+              --notes "NV ${semver}"
+          fi
+          gh release upload "$release_tag" \
+            "publish/windows/nv-${semver}.exe#nv-${semver}.exe" \
+            "install/nv.ps1#nv.ps1" \
+            "install/nv.cmd#nv.cmd" \
+            --repo "$GITHUB_REPOSITORY" \
+            --clobber
           cp install/nv.ps1 publish/nv.ps1
           cp install/nv.cmd publish/nv.cmd
           tmpdir="$(mktemp -d)"
