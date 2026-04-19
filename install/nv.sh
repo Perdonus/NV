@@ -1,8 +1,8 @@
 #!/usr/bin/env sh
 set -eu
 
-REPO="Perdonus/NV"
-RAW_BASE="https://raw.githubusercontent.com/${REPO}/linux-builds"
+SITE_BASE="${NV_SITE_BASE:-https://neuralvv.org}"
+API_BASE="${NV_BOOTSTRAP_BASE:-$SITE_BASE/nv/api}"
 INSTALL_ROOT="${NV_INSTALL_ROOT:-$HOME/.local/bin}"
 TARGET="$INSTALL_ROOT/nv"
 TMP_DIR="$(mktemp -d)"
@@ -15,15 +15,20 @@ command -v install >/dev/null 2>&1 || { echo "не найдена команда
 command -v python3 >/dev/null 2>&1 || { echo "не найдена команда: python3" >&2; exit 1; }
 
 mkdir -p "$INSTALL_ROOT"
-curl -fsSL "$RAW_BASE/manifest.json" -o "$TMP_DIR/manifest.json"
-NV_URL="$(python3 - <<'PY' "$TMP_DIR/manifest.json"
+curl -fsSL "$API_BASE/bootstrap/manifest?platform=nv-linux" -o "$TMP_DIR/manifest.json"
+NV_URL="$(python3 - <<'PY' "$TMP_DIR/manifest.json" "$SITE_BASE"
 import json,sys
 with open(sys.argv[1], 'r', encoding='utf-8') as fh:
     manifest=json.load(fh)
+site_base=sys.argv[2].rstrip('/')
+url=''
 for item in manifest.get('artifacts', []):
     if item.get('platform') == 'nv-linux':
-        print(item.get('download_url') or '')
+        url=(item.get('download_url') or '').strip()
         break
+if url.startswith('/'):
+    url=site_base+url
+print(url)
 PY
 )"
 [ -n "$NV_URL" ] || { echo "артефакт nv-linux не найден" >&2; exit 1; }
@@ -32,4 +37,4 @@ tar -xzf "$TMP_DIR/nv-linux.tar.gz" -C "$TMP_DIR"
 NV_BIN="$(find "$TMP_DIR" -maxdepth 2 -type f -name 'nv' | head -n 1)"
 [ -n "$NV_BIN" ] || { echo "payload nv не найден" >&2; exit 1; }
 install -m 0755 "$NV_BIN" "$TARGET"
-echo "Установлен или обновлен nv в $TARGET"
+echo "Установлен или обновлён nv в $TARGET"

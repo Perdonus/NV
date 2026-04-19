@@ -1,99 +1,63 @@
 {
   "packages": [
     {
+      "name": "@lvls/nv",
+      "aliases": [
+        "nv"
+      ],
+      "title": "NV",
+      "description": "Пакетный менеджер NV.",
+      "homepage": "https://neuralvv.org/nv/",
+      "variants": [
+        {
+          "id": "nv-linux",
+          "label": "Linux",
+          "os": "linux",
+          "default": true,
+          "is_default": true,
+          "install_strategy": "unix-self-binary",
+          "install_root": "$HOME/.local/bin",
+          "binary_name": "nv",
+          "install_command": "curl -fsSL https://neuralvv.org/install/nv.sh | sh",
+          "update_command": "nv install @lvls/nv",
+          "update_policy": "nv-self",
+          "metadata": {
+            "bootstrapPlatform": "nv-linux"
+          }
+        },
+        {
+          "id": "nv-windows",
+          "label": "Windows",
+          "os": "windows",
+          "default": true,
+          "is_default": true,
+          "install_strategy": "windows-self-binary",
+          "install_root": "%LOCALAPPDATA%/NV",
+          "binary_name": "nv.exe",
+          "install_command": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"irm https://neuralvv.org/install/nv.ps1 | iex\"",
+          "update_command": "nv install @lvls/nv",
+          "update_policy": "nv-self",
+          "metadata": {
+            "bootstrapPlatform": "nv-windows"
+          }
+        }
+      ]
+    },
+    {
       "name": "@lvls/neuralv",
       "aliases": [
         "neuralv"
       ],
       "title": "NeuralV",
-      "description": "Клиент защиты NeuralV для Windows и Linux.",
-      "homepage": "https://sosiskibot.ru/neuralv/",
+      "description": "Клиент защиты NeuralV.",
+      "homepage": "https://neuralvv.org/",
       "variants": [
-        {
-          "id": "windows",
-          "label": "Windows",
-          "os": "windows",
-          "default": true,
-          "install_strategy": "windows-desktop-bundle",
-          "uninstall_strategy": "windows-remove-dir",
-          "install_root": "%LOCALAPPDATA%/Programs/NeuralV",
-          "launcher_path": "NeuralV.exe",
-          "binary_name": "neuralv.exe",
-          "install_command": "nv install @lvls/neuralv",
-          "update_command": "nv install @lvls/neuralv",
-          "update_policy": "startup-auto",
-          "auto_update": true,
-          "source": {
-            "type": "github-branch-manifest",
-            "repo": "Perdonus/fatalerror",
-            "branch": "windows-builds",
-            "platform": "windows"
-          },
-          "metadata": {
-            "updateChannel": "beta",
-            "artifactPlatform": "windows",
-            "desktopTrack": "windows",
-            "versionSourceFile": "versions/windows.txt",
-            "bundledComponents": [
-              "gui",
-              "cli",
-              "updater"
-            ],
-            "cliBinary": "neuralv.exe",
-            "layout": "root-bin-libs",
-            "rootEntries": [
-              "NeuralV.exe",
-              "log.txt",
-              "bin",
-              "libs"
-            ],
-            "cliBinaryName": "neuralv.exe",
-            "cliRelativePath": "bin/neuralv.exe",
-            "cliHostBinaryName": "neuralv-host.exe",
-            "cliHostRelativePath": "libs/neuralv-host.exe",
-            "launcherBinaryName": "NeuralV.exe",
-            "guiBinaryName": "NeuralV.Gui.exe",
-            "guiRelativePath": "libs/NeuralV.Gui.exe",
-            "updaterBinaryName": "neuralv-updater.exe",
-            "updaterRelativePath": "bin/neuralv-updater.exe",
-            "updaterHostBinaryName": "neuralv-updater-host.exe",
-            "updaterHostRelativePath": "libs/neuralv-updater-host.exe",
-            "protocolSchemes": [
-              "shieldsecurity",
-              "neuralv"
-            ],
-            "logRelativePath": "log.txt",
-            "binDirectory": "bin",
-            "libsDirectory": "libs",
-            "versionSource": {
-              "repo": "Perdonus/fatalerror",
-              "branch": "windows-builds",
-              "platform": "windows"
-            },
-            "portableArtifactPath": "releases/windows-v{version}/neuralv-windows.zip",
-            "setupArtifactPath": "releases/windows-v{version}/neuralv-setup.exe",
-            "stablePortableArtifactPath": "releases/windows-v{version}/neuralv-windows.zip",
-            "stableSetupArtifactPath": "releases/windows-v{version}/neuralv-setup.exe",
-            "portableVersionPattern": "releases/windows-v{version}/neuralv-windows.zip",
-            "setupVersionPattern": "releases/windows-v{version}/neuralv-setup.exe",
-            "releaseTagPattern": "windows-v{version}",
-            "commands": {
-              "powershell": {
-                "install": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"irm https://raw.githubusercontent.com/Perdonus/NV/windows-builds/nv.ps1 | iex; nv install @lvls/neuralv\"",
-                "update": "nv install @lvls/neuralv"
-              },
-              "cmd": {
-                "install": "curl.exe -fsSL https://raw.githubusercontent.com/Perdonus/NV/windows-builds/nv.cmd -o \"%TEMP%\\nv-install.cmd\" && cmd /c \"%TEMP%\\nv-install.cmd\" && nv install @lvls/neuralv",
-                "update": "nv install @lvls/neuralv"
-              }
-            }
-          }
-        },
         {
           "id": "linux",
           "label": "Linux",
           "os": "linux",
           "default": true,
+          "is_default": true,
           "install_strategy": "linux-desktop-unified",
           "uninstall_strategy": "linux-remove-dir",
           "install_root": "$HOME/.local/opt/NeuralV",
@@ -101,177 +65,21 @@
           "binary_name": "neuralv",
           "wrapper_name": "neuralv",
           "install_command": "nv install @lvls/neuralv",
-          "update_command": "nv install @lvls/neuralv",
-          "update_policy": "nv-command",
-          "auto_update": false,
-          "source": {
-            "type": "github-branch-manifest",
-            "repo": "Perdonus/fatalerror",
-            "branch": "linux-gui-builds",
-            "platform": "linux"
-          },
-          "metadata": {
-            "artifactPlatform": "linux",
-            "desktopTrack": "linux",
-            "versionSourceFile": "versions/linux-gui.txt",
-            "bundledComponents": [
-              "gui",
-              "cli",
-              "updater"
-            ],
-            "versionSource": {
-              "repo": "Perdonus/fatalerror",
-              "branch": "linux-gui-builds",
-              "platform": "linux"
-            },
-            "relatedSources": [
-              {
-                "role": "cli",
-                "repo": "Perdonus/fatalerror",
-                "branch": "linux-cli-builds",
-                "platform": "shell"
-              }
-            ],
-            "stableArtifactPath": "linux/neuralv-linux.tar.gz",
-            "stableCliArtifactPath": "shell/neuralv-shell-linux.tar.gz",
-            "stableDaemonArtifactPath": "shell/neuralvd-linux.tar.gz",
-            "directPackages": {
-              "ubuntu": {
-                "packageType": "deb",
-                "repoCommands": [
-                  "curl -fsSL https://sosiskibot.ru/neuralv/repo/debian/neuralv.gpg | sudo gpg --dearmor -o /usr/share/keyrings/neuralv-archive-keyring.gpg",
-                  "echo \"deb [signed-by=/usr/share/keyrings/neuralv-archive-keyring.gpg] https://sosiskibot.ru/neuralv/repo/debian stable main\" | sudo tee /etc/apt/sources.list.d/neuralv.list >/dev/null",
-                  "sudo apt update"
-                ],
-                "installCommands": [
-                  "sudo apt install neuralv"
-                ],
-                "updateCommands": [
-                  "sudo apt update",
-                  "sudo apt install --only-upgrade neuralv"
-                ]
-              },
-              "fedora": {
-                "packageType": "rpm",
-                "repoCommands": [
-                  "sudo rpm --import https://sosiskibot.ru/neuralv/repo/rpm/RPM-GPG-KEY-neuralv",
-                  "sudo tee /etc/yum.repos.d/neuralv.repo >/dev/null <<'EOF'",
-                  "[neuralv]",
-                  "name=NeuralV",
-                  "baseurl=https://sosiskibot.ru/neuralv/repo/rpm",
-                  "enabled=1",
-                  "gpgcheck=1",
-                  "gpgkey=https://sosiskibot.ru/neuralv/repo/rpm/RPM-GPG-KEY-neuralv",
-                  "EOF"
-                ],
-                "installCommands": [
-                  "sudo dnf install neuralv"
-                ],
-                "updateCommands": [
-                  "sudo dnf upgrade neuralv"
-                ]
-              },
-              "arch": {
-                "packageType": "pkg.tar.zst",
-                "repoCommands": [
-                  "sudo install -d /etc/pacman.d",
-                  "echo \"[neuralv]\\nServer = https://sosiskibot.ru/neuralv/repo/arch/$arch\" | sudo tee /etc/pacman.d/neuralv-mirrorlist >/dev/null",
-                  "if ! grep -q \"^\\[neuralv\\]\" /etc/pacman.conf; then printf \"\\n[neuralv]\\nInclude = /etc/pacman.d/neuralv-mirrorlist\\n\" | sudo tee -a /etc/pacman.conf >/dev/null; fi",
-                  "sudo pacman -Sy"
-                ],
-                "installCommands": [
-                  "sudo pacman -S neuralv"
-                ],
-                "updateCommands": [
-                  "sudo pacman -Syu neuralv"
-                ]
-              },
-              "appimage": {
-                "packageType": "appimage",
-                "artifactPath": "linux/NeuralV.AppImage",
-                "installCommands": [
-                  "curl -L <gui-url> -o NeuralV.AppImage",
-                  "chmod +x NeuralV.AppImage",
-                  "./NeuralV.AppImage"
-                ],
-                "updateCommands": [
-                  "curl -L <gui-url> -o NeuralV.AppImage",
-                  "chmod +x NeuralV.AppImage"
-                ]
-              },
-              "tarball": {
-                "packageType": "tar.gz",
-                "artifactPath": "linux/neuralv-linux.tar.gz",
-                "installCommands": [
-                  "tar -xzf neuralv-linux.tar.gz",
-                  "./NeuralV/bin/NeuralV"
-                ]
-              }
-            }
-          }
-        }
-      ]
-    },
-    {
-      "name": "@lvls/nv",
-      "aliases": [
-        "nv"
-      ],
-      "title": "NV",
-      "description": "Пакетный менеджер NeuralV.",
-      "homepage": "https://neuralvv.org/nv/",
-      "variants": [
-        {
-          "id": "nv-linux",
-          "label": "NV Linux",
-          "os": "linux",
-          "default": true,
-          "install_strategy": "unix-self-binary",
-          "install_root": "$HOME/.local/bin",
-          "binary_name": "nv",
-          "install_command": "curl -fsSL https://raw.githubusercontent.com/Perdonus/NV/linux-builds/nv.sh | sh",
-          "update_command": "nv install @lvls/nv",
-          "update_policy": "nv-self",
-          "auto_update": false,
-          "source": {
-            "type": "github-branch-manifest",
-            "repo": "Perdonus/NV",
-            "branch": "linux-builds",
-            "platform": "nv-linux"
-          },
-          "metadata": {
-            "artifactPlatform": "nv-linux",
-            "packageTrack": "nv-linux",
-            "updateChannel": "main",
-            "releaseTagPattern": "nv-v{version}",
-            "releaseAssetPattern": "nv-linux-{version}.tar.gz"
-          }
+          "update_command": "nv update @lvls/neuralv"
         },
         {
-          "id": "nv-windows",
-          "label": "NV Windows",
+          "id": "windows",
+          "label": "Windows",
           "os": "windows",
           "default": true,
-          "install_strategy": "windows-self-binary",
-          "install_root": "%LOCALAPPDATA%/NV",
-          "binary_name": "nv.exe",
-          "install_command": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"irm https://raw.githubusercontent.com/Perdonus/NV/windows-builds/nv.ps1 | iex\"",
-          "update_command": "nv install @lvls/nv",
-          "update_policy": "nv-self",
-          "auto_update": false,
-          "source": {
-            "type": "github-branch-manifest",
-            "repo": "Perdonus/NV",
-            "branch": "windows-builds",
-            "platform": "nv-windows"
-          },
-          "metadata": {
-            "artifactPlatform": "nv-windows",
-            "packageTrack": "nv-windows",
-            "updateChannel": "main",
-            "releaseTagPattern": "nv-v{version}",
-            "releaseAssetPattern": "nv-{version}.exe"
-          }
+          "is_default": true,
+          "install_strategy": "windows-desktop-bundle",
+          "uninstall_strategy": "windows-remove-dir",
+          "install_root": "%LOCALAPPDATA%/Programs/NeuralV",
+          "launcher_path": "NeuralV.exe",
+          "binary_name": "neuralv.exe",
+          "install_command": "nv install @lvls/neuralv",
+          "update_command": "nv update @lvls/neuralv"
         }
       ]
     }

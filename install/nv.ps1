@@ -1,9 +1,13 @@
 $ErrorActionPreference = 'Stop'
-$repo = 'Perdonus/NV'
-$rawBase = "https://raw.githubusercontent.com/$repo/windows-builds"
-$manifest = Invoke-RestMethod "$rawBase/manifest.json"
+$siteBase = if ($env:NV_SITE_BASE) { $env:NV_SITE_BASE.TrimEnd('/') } else { 'https://neuralvv.org' }
+$apiBase = if ($env:NV_BOOTSTRAP_BASE) { $env:NV_BOOTSTRAP_BASE.TrimEnd('/') } else { "$siteBase/nv/api" }
+$manifest = Invoke-RestMethod "$apiBase/bootstrap/manifest?platform=nv-windows"
 $artifact = $manifest.artifacts | Where-Object { $_.platform -eq 'nv-windows' } | Select-Object -First 1
 if (-not $artifact -or -not $artifact.download_url) { throw 'nv-windows artifact not found' }
+$downloadUrl = "$($artifact.download_url)"
+if ($downloadUrl.StartsWith('/')) {
+    $downloadUrl = "$siteBase$downloadUrl"
+}
 $defaultInstallRoot = Join-Path $env:LOCALAPPDATA 'NV'
 $registryKey = 'HKCU:\Software\NV\Packages\lvls-nv-nv-windows'
 $existingCommand = Get-Command nv.exe -ErrorAction SilentlyContinue | Select-Object -First 1
@@ -33,7 +37,7 @@ $target = Join-Path $installRoot 'nv.exe'
 $wrapper = Join-Path $installRoot 'nv.cmd'
 $tempTarget = Join-Path $installRoot 'nv.download.exe'
 if (Test-Path $tempTarget) { Remove-Item -Force $tempTarget }
-Invoke-WebRequest -Uri $artifact.download_url -OutFile $tempTarget
+Invoke-WebRequest -Uri $downloadUrl -OutFile $tempTarget
 Move-Item -Force $tempTarget $target
 Set-Content -Path $wrapper -Value "@echo off`r`n`"$target`" %*`r`n" -Encoding ASCII
 
@@ -47,7 +51,7 @@ function Add-UserPathEntry {
     }
     $exists = $false
     foreach ($segment in $segments) {
-        if ($segment.TrimEnd('\') -ieq $PathEntry.TrimEnd('\')) {
+        if ($segment.TrimEnd('\\') -ieq $PathEntry.TrimEnd('\\')) {
             $exists = $true
             break
         }
@@ -59,7 +63,7 @@ function Add-UserPathEntry {
         }
         [Environment]::SetEnvironmentVariable('Path', ($updatedSegments -join ';'), 'User')
     }
-    if (-not (($env:Path -split ';') | Where-Object { $_.TrimEnd('\') -ieq $PathEntry.TrimEnd('\') })) {
+    if (-not (($env:Path -split ';') | Where-Object { $_.TrimEnd('\\') -ieq $PathEntry.TrimEnd('\\') })) {
         $env:Path = "$PathEntry;$env:Path"
     }
 }

@@ -1,0 +1,208 @@
+:root {
+  color-scheme: dark;
+  --bg: #0d1117;
+  --bg-elevated: #141922;
+  --surface: #171d27;
+  --surface-raised: #1c2330;
+  --surface-tonal: #20293a;
+  --outline: rgba(196, 208, 229, 0.16);
+  --outline-strong: rgba(196, 208, 229, 0.28);
+  --text: #f3f6fc;
+  --text-muted: #b7c2d4;
+  --primary: #8ab4f8;
+  --primary-strong: #a8c7fa;
+  --primary-ink: #09111f;
+  --radius-xl: 28px;
+  --radius-lg: 22px;
+  --radius-md: 18px;
+  --radius-sm: 14px;
+  --shadow: 0 24px 56px rgba(0, 0, 0, 0.36);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html, body {
+  margin: 0;
+  min-height: 100%;
+}
+
+body {
+  min-height: 100dvh;
+  font-family: "Segoe UI Variable", "Inter", system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+
+button,
+code {
+  font: inherit;
+}
+
+.shell {
+  width: min(100%, 840px);
+  margin: 0 auto;
+  padding: 24px 16px 48px;
+}
+
+.install-card,
+.project-card {
+  border: 1px solid var(--outline);
+  border-radius: var(--radius-xl);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.install-card {
+  min-height: calc(100dvh - 48px);
+  padding: 24px 20px;
+  display: grid;
+  align-content: center;
+  gap: 20px;
+}
+
+.toggle-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  padding: 6px;
+  border-radius: 999px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--outline);
+}
+
+.toggle {
+  appearance: none;
+  border: 0;
+  border-radius: 999px;
+  min-height: 48px;
+  padding: 0 16px;
+  color: var(--text-muted);
+  background: transparent;
+  font-weight: 700;
+  transition: background-color 160ms ease, color 160ms ease, box-shadow 160ms ease;
+}
+
+.toggle[aria-pressed="true"] {
+  background: var(--primary);
+  color: var(--primary-ink);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+}
+
+.command-card,
+.project-command {
+  width: 100%;
+  appearance: none;
+  border: 1px solid var(--outline);
+  border-radius: var(--radius-lg);
+  padding: 16px;
+  text-align: left;
+  color: inherit;
+  background: var(--surface-raised);
+  transition: border-color 160ms ease, background-color 160ms ease, box-shadow 160ms ease;
+}
+
+.command-card:focus-visible,
+.project-command:focus-visible,
+.toggle:focus-visible {
+  outline: 2px solid rgba(138, 180, 248, 0.8);
+  outline-offset: 2px;
+}
+
+.command-card.is-copied,
+.project-command.is-copied,
+.command-card:hover,
+.project-command:hover {
+  border-color: var(--outline-strong);
+  background: var(--surface-tonal);
+}
+
+.command-chip,
+.project-version {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: rgba(138, 180, 248, 0.14);
+  color: var(--primary-strong);
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.command-chip {
+  margin-bottom: 12px;
+}
+
+.command-text {
+  display: block;
+  font-family: "SFMono-Regular", ui-monospace, "Cascadia Mono", "Roboto Mono", monospace;
+  font-size: 0.84rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.project-list {
+  list-style: none;
+  margin: 20px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 16px;
+}
+
+.project-card {
+  padding: 18px;
+}
+
+.project-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.project-title {
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.project-commands {
+  display: grid;
+  gap: 10px;
+}
+
+@media (max-width: 639px) {
+  .shell {
+    padding: 16px 12px 32px;
+  }
+
+  .install-card {
+    min-height: calc(100dvh - 32px);
+    padding: 18px 16px;
+  }
+
+  .project-card {
+    padding: 14px;
+  }
+
+  .project-top {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+
+@media (min-width: 768px) {
+  .shell {
+    padding: 32px 20px 64px;
+  }
+
+  .install-card {
+    padding: 28px;
+  }
+}

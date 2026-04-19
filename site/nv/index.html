@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0f1318">
+  <meta name="color-scheme" content="dark">
+  <title>NV</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <main class="shell">
+    <section class="install-card" aria-label="NV install">
+      <div class="toggle-row" role="group" aria-label="Operating system">
+        <button class="toggle" type="button" data-os-toggle="linux" aria-pressed="true">Linux</button>
+        <button class="toggle" type="button" data-os-toggle="windows" aria-pressed="false">Windows</button>
+      </div>
+
+      <button class="command-card command-card--hero" type="button" data-copy-command>
+        <span class="command-chip" data-command-os>Linux</span>
+        <code class="command-text" data-command-text>curl -fsSL https://neuralvv.org/install/nv.sh | sh</code>
+      </button>
+    </section>
+
+    <ul class="project-list" id="project-list" aria-label="Projects"></ul>
+  </main>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

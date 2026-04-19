@@ -1,0 +1,38 @@
+{
+  "name": "@lvls/nv",
+  "version": "1.4.0",
+  "title": "NV",
+  "description": "Пакетный менеджер NV.",
+  "homepage": "https://neuralvv.org/nv/",
+  "aliases": [
+    "nv"
+  ],
+  "dist_tags": [
+    "latest"
+  ],
+  "readme": "README.md",
+  "variants": [
+    {
+      "id": "nv-linux",
+      "label": "Linux",
+      "os": "linux",
+      "default": true,
+      "artifact": "dist/nv-linux.tar.gz",
+      "file_name": "nv-linux.tar.gz",
+      "install_strategy": "unix-self-binary",
+      "install_root": "$HOME/.local/bin",
+      "binary_name": "nv"
+    },
+    {
+      "id": "nv-windows",
+      "label": "Windows",
+      "os": "windows",
+      "default": true,
+      "artifact": "dist/nv.exe",
+      "file_name": "nv.exe",
+      "install_strategy": "windows-self-binary",
+      "install_root": "%LOCALAPPDATA%/NV",
+      "binary_name": "nv.exe"
+    }
+  ]
+}

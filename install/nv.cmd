@@ -1,6 +1,8 @@
 @echo off
-set "REPO=Perdonus/NV"
-set "RAW_BASE=https://raw.githubusercontent.com/%REPO%/windows-builds"
+set "SITE_BASE=%NV_SITE_BASE%"
+if "%SITE_BASE%"=="" set "SITE_BASE=https://neuralvv.org"
+set "API_BASE=%NV_BOOTSTRAP_BASE%"
+if "%API_BASE%"=="" set "API_BASE=%SITE_BASE%/nv/api"
 set "DEFAULT_INSTALL_ROOT=%LOCALAPPDATA%\NV"
 set "REGISTRY_KEY=HKCU:\Software\NV\Packages\lvls-nv-nv-windows"
 set "INSTALL_ROOT=%NV_INSTALL_ROOT%"
@@ -25,8 +27,8 @@ set "TARGET=%INSTALL_ROOT%\nv.exe"
 set "WRAPPER=%INSTALL_ROOT%\nv.cmd"
 set "TMP_TARGET=%INSTALL_ROOT%\nv.download.exe"
 if not exist "%INSTALL_ROOT%" mkdir "%INSTALL_ROOT%" >nul 2>&1
-curl.exe -fsSL "%RAW_BASE%/manifest.json" -o "%TEMP%\nv-manifest.json" || exit /b 1
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$m=Get-Content '%TEMP%\\nv-manifest.json' -Raw | ConvertFrom-Json; $a=$m.artifacts | Where-Object { $_.platform -eq 'nv-windows' } | Select-Object -First 1; if (-not $a -or -not $a.download_url) { exit 3 }; [Console]::Out.Write($a.download_url)" > "%TEMP%\nv-url.txt"
+curl.exe -fsSL "%API_BASE%/bootstrap/manifest?platform=nv-windows" -o "%TEMP%\nv-manifest.json" || exit /b 1
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$m=Get-Content '%TEMP%\nv-manifest.json' -Raw | ConvertFrom-Json; $a=$m.artifacts | Where-Object { $_.platform -eq 'nv-windows' } | Select-Object -First 1; if (-not $a -or -not $a.download_url) { exit 3 }; $u="$($a.download_url)"; if ($u.StartsWith('/')) { $u='%SITE_BASE%'+$u }; [Console]::Out.Write($u)" > "%TEMP%\nv-url.txt"
 if errorlevel 1 exit /b 1
 set /p NV_URL=<"%TEMP%\nv-url.txt"
 if "%NV_URL%"=="" exit /b 1

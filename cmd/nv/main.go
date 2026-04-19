@@ -27,7 +27,7 @@ import (
 	"github.com/Perdonus/NV/internal/state"
 )
 
-const defaultBaseURL = "https://sosiskibot.ru/basedata"
+const defaultBaseURL = "https://neuralvv.org/nv/api"
 
 const (
 	canonicalNeuralVPackage = "@lvls/neuralv"
@@ -51,11 +51,7 @@ func main() {
 }
 
 func resolveBaseURL() string {
-	baseURL := strings.TrimSpace(os.Getenv("NEURALV_BASE_URL"))
-	if baseURL == "" {
-		return defaultBaseURL
-	}
-	return baseURL
+	return resolvedBaseURL(defaultBaseURL)
 }
 
 func handle(args []string, client *api.Client) error {
@@ -73,9 +69,9 @@ func handle(args []string, client *api.Client) error {
 	case "help", "-h", "--help":
 		printHelp()
 		return nil
-	case "list":
+	case "list", "ls":
 		return listInstalledPackages()
-	case "search":
+	case "search", "find":
 		query := strings.Join(args[1:], " ")
 		return searchPackages(client, query)
 	case "info":
@@ -83,13 +79,31 @@ func handle(args []string, client *api.Client) error {
 			return errors.New("не хватает имени пакета: info <package>")
 		}
 		return showPackageInfo(client, args[1])
-	case "install":
+	case "view", "show", "v":
+		return viewCommand(client, args[1:])
+	case "outdated":
+		return outdatedCommand(client, args[1:])
+	case "update":
+		return updateCommand(client, args[1:])
+	case "pack":
+		return packCommand(args[1:])
+	case "publish":
+		return publishCommand(client, args[1:])
+	case "login":
+		return loginCommand(args[1:])
+	case "logout":
+		return logoutCommand()
+	case "whoami":
+		return whoamiCommand(client)
+	case "server":
+		return currentServerCommand()
+	case "install", "i":
 		spec, options, err := parseInstallArgs(args[1:])
 		if err != nil {
 			return err
 		}
 		return installPackage(client, spec, options)
-	case "uninstall":
+	case "uninstall", "rm":
 		if len(args) < 2 {
 			return errors.New("не хватает имени пакета: uninstall <package>")
 		}
@@ -102,11 +116,20 @@ func handle(args []string, client *api.Client) error {
 
 func printHelp() {
 	fmt.Println(`Команды:
-  install <package[@version]> [--dir <path>]
-  uninstall <package>
-  list
-  search [query]
+  install | i <package[@version]> [--dir <path>]
+  uninstall | rm <package>
+  update [package ...]
+  outdated [package ...] [--json]
+  list | ls
+  search | find [query]
   info <package>
+  view | show | v <package[@version]> [field] [--json] [--os <linux|windows|all>]
+  pack [--manifest <file>] [--out <file>]
+  publish [--manifest <file>] [--tag <tag>] [--dry-run]
+  login --token <token> [--server <url>]
+  logout
+  whoami
+  server
   version | -v | --version
   help | -h | --help`)
 }
@@ -1794,7 +1817,14 @@ func warnIfNVUpdateAvailable(args []string, client *api.Client) {
 }
 
 func shouldSkipNVUpdateCheck(args []string) bool {
-	if len(args) < 2 || args[0] != "install" {
+	if len(args) == 0 {
+		return false
+	}
+	switch args[0] {
+	case "view", "show", "v", "outdated", "publish", "pack", "login", "logout", "whoami", "server":
+		return true
+	}
+	if len(args) < 2 || (args[0] != "install" && args[0] != "i") {
 		return false
 	}
 	name, _, err := parsePackageSpec(args[1])
@@ -2343,6 +2373,14 @@ func getInstalledStateRecord(installedState *state.File, name string) (state.Ins
 		}
 	case canonicalNVPackage:
 		if installed, ok := installedState.Get("nv"); ok {
+			return installed, true
+		}
+	}
+	for _, key := range installedState.Names() {
+		if canonicalPackageKey(key) != canonical {
+			continue
+		}
+		if installed, ok := installedState.Get(key); ok {
 			return installed, true
 		}
 	}
