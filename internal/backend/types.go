@@ -286,6 +286,9 @@ func packageRecordFromBundle(bundle packageBundle, baseURL string) PackageRecord
 
 	for _, row := range bundle.Variants {
 		variant := packageVariantFromRow(row)
+		if variant.DownloadURL != "" {
+			variant.DownloadURL = absoluteDownloadURL(baseURL, variant.DownloadURL)
+		}
 		if release, ok := releaseByVariant[row.VariantID]; ok {
 			variant.Version = release.Version
 			variant.FileName = release.FileName
