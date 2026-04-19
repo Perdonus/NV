@@ -1,13 +1,18 @@
 @echo off
 set "SITE_BASE=%NV_SITE_BASE%"
-if "%SITE_BASE%"=="" set "SITE_BASE=https://neuralvv.org"
+if "%SITE_BASE%"=="" set "SITE_BASE=https://sosiskibot.ru"
 set "API_BASE=%NV_BOOTSTRAP_BASE%"
 if "%API_BASE%"=="" set "API_BASE=%SITE_BASE%/nv/api"
 set "DEFAULT_INSTALL_ROOT=%LOCALAPPDATA%\NV"
-set "REGISTRY_KEY=HKCU:\Software\NV\Packages\lvls-nv-nv-windows"
+set "REGISTRY_KEY=HKCU:\Software\NV\Packages\nv-nv-windows"
+set "LEGACY_REGISTRY_KEY=HKCU:\Software\NV\Packages\lvls-nv-nv-windows"
 set "INSTALL_ROOT=%NV_INSTALL_ROOT%"
 if not "%INSTALL_ROOT%"=="" goto install_root_ready
 for /f "usebackq delims=" %%I in (`powershell -NoProfile -ExecutionPolicy Bypass -Command "$key='%REGISTRY_KEY%'; if (Test-Path $key) { $value=(Get-ItemProperty -Path $key -Name InstallRoot -ErrorAction SilentlyContinue).InstallRoot; if ($value) { [Console]::Out.Write($value) } }" 2^>nul`) do (
+  set "INSTALL_ROOT=%%I"
+  goto install_root_ready
+)
+for /f "usebackq delims=" %%I in (`powershell -NoProfile -ExecutionPolicy Bypass -Command "$key='%LEGACY_REGISTRY_KEY%'; if (Test-Path $key) { $value=(Get-ItemProperty -Path $key -Name InstallRoot -ErrorAction SilentlyContinue).InstallRoot; if ($value) { [Console]::Out.Write($value) } }" 2^>nul`) do (
   set "INSTALL_ROOT=%%I"
   goto install_root_ready
 )

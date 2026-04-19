@@ -1,51 +1,36 @@
 # NV
 
-`nv` — пакетный менеджер и publish CLI для namespaced-пакетов `NV`.
+`nv` — пакетный менеджер и publish CLI.
 
-Он решает четыре задачи:
+Он делает четыре вещи:
 - ставит пакеты из серверного реестра;
-- показывает метаданные и доступные версии;
-- показывает подробный `view`, как у `npm view`, но под NV-пакеты;
-- публикует новые версии пакетов прямо из терминала.
+- показывает метаданные, версии и `dist-tags`;
+- умеет `view`, как `npm view`, но под NV-пакеты;
+- публикует новые версии прямо из терминала.
 
-`nvd` — отдельный backend этого же репозитория. Он хранит метаданные в SQLite, сами артефакты на диске и отдаёт catalog, details, resolve, view, bootstrap manifest и publish API.
+`nvd` — backend этого же репозитория. Он хранит индекс пакетов в SQLite, артефакты локально на диске и отдаёт catalog, details, resolve, `view`, bootstrap manifest и publish API.
 
 ## Установка
 
 Linux:
 
 ```sh
-curl -fsSL https://neuralvv.org/install/nv.sh | sh
+curl -fsSL https://sosiskibot.ru/install/nv.sh | sh
 ```
 
 Windows:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://neuralvv.org/install/nv.ps1 | iex"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://sosiskibot.ru/install/nv.ps1 | iex"
 ```
 
-Повторный запуск install-скрипта обновляет существующую установку `nv`.
-
-## Что нужно для сервера
-
-`nvd` не зависит от GitHub как от source of truth.
-
-Сервер хранит:
-- индекс пакетов в SQLite;
-- каждый опубликованный файл локально на диске;
-- каждую опубликованную версию отдельно;
-- `dist-tags` по пакетам;
-- README/notes по версиям.
-
-Минимальные зависимости сервера:
-- `sqlite3`
-- любой reverse proxy перед `nvd`
+Повторный запуск install-скрипта обновляет установленный `nv`.
 
 ## Команды
 
 ```text
 nv install | i <package[@version]> [--dir <path>]
-nv uninstall | rm <package>
+nv uninstall | remove | rm <package>
 nv update [package ...]
 nv outdated [package ...] [--json]
 nv list | ls
@@ -67,17 +52,17 @@ nv help
 Установить пакет:
 
 ```sh
-nv install @lvls/neuralv
+nv i neuralv
 ```
 
 Посмотреть, что лежит в реестре:
 
 ```sh
-nv view @lvls/neuralv
-nv view @lvls/neuralv versions --json
-nv view @lvls/nv homepage
-nv view @scope/project dist_tags
-nv view @scope/project@beta version
+nv view neuralv
+nv view neuralv versions --json
+nv view nv homepage
+nv view project dist_tags
+nv view project@beta version
 ```
 
 Проверить обновления:
@@ -86,6 +71,21 @@ nv view @scope/project@beta version
 nv outdated
 nv update
 ```
+
+## Что хранит сервер
+
+`nvd` не зависит от GitHub как от source of truth.
+
+Сервер хранит:
+- индекс пакетов в SQLite;
+- каждый опубликованный файл локально на диске;
+- каждую опубликованную версию отдельно;
+- `dist-tags` по пакетам;
+- README и notes по версиям.
+
+Минимальные зависимости сервера:
+- `sqlite3`
+- любой reverse proxy перед `nvd`
 
 ## Публикация из терминала
 
@@ -96,35 +96,29 @@ go run ./cmd/nvd \
   --addr :8080 \
   --data-dir ./var/nvd \
   --seed ./registry/packages.json \
-  --public-base-url https://neuralvv.org/nv/api \
+  --public-base-url https://sosiskibot.ru/nv/api \
   --publish-token <token>
 ```
 
-Что хранит `nvd`:
-- SQLite с индексом пакетов и релизов;
-- локальные артефакты в `var/nvd/v1/files/...`;
-- README и notes по версиям;
-- `dist-tags`, включая `latest`, `beta` и другие;
-- seed-реестр из `registry/packages.json`;
-- HTTP API:
-  - `GET /packages`
-  - `GET /packages/details`
-  - `GET /packages/resolve`
-  - `GET /packages/view`
-  - `GET /bootstrap/manifest`
-  - `GET /files/*`
-  - `GET /whoami`
-  - `POST /publish`
+Что отдаёт `nvd`:
+- `GET /packages`
+- `GET /packages/details`
+- `GET /packages/resolve`
+- `GET /packages/view`
+- `GET /bootstrap/manifest`
+- `GET /files/*`
+- `GET /whoami`
+- `POST /publish`
 
-Подробная схема хранения: [docs/server-layout.md](/root/NV/docs/server-layout.md)
+Схема хранения: [docs/server-layout.md](/root/NV/docs/server-layout.md)
 
 ### 2. Один раз авторизуйся
 
 ```sh
-nv login --server https://neuralvv.org/nv/api --token <token>
+nv login --server https://sosiskibot.ru/nv/api --token <token>
 ```
 
-Проверить, что токен живой:
+Проверить токен:
 
 ```sh
 nv whoami
@@ -138,12 +132,12 @@ nv whoami
 
 ```json
 {
-  "name": "@scope/project",
+  "name": "project",
   "version": "1.0.0",
   "title": "Project",
   "description": "Короткое описание пакета.",
   "homepage": "https://example.org/project",
-  "aliases": ["project"],
+  "aliases": ["project-cli"],
   "dist_tags": ["latest"],
   "readme": "README.md",
   "variants": [
@@ -169,14 +163,14 @@ nv whoami
 }
 ```
 
-Что важно в publish manifest:
-- `name` должен быть namespaced: `@scope/project`
-- `version` должен быть semver
-- каждый `variant` должен указывать реальный файл `artifact`
-- `dist_tags` определяют, что увидит `nv view` и что поставит `nv install <package>@<tag>`
-- если `dist_tags` не указаны, сервер трактует публикацию как `latest`
+Что важно:
+- `name` — короткое имя пакета, без `@scope`;
+- `version` — semver;
+- каждый `variant` должен указывать реальный файл `artifact`;
+- `dist_tags` определяют, что увидит `nv view` и что поставит `nv i <package>@<tag>`;
+- если `dist_tags` не указаны, сервер трактует публикацию как `latest`.
 
-### 4. Проверь publish локально
+### 4. Проверь пакет локально
 
 ```sh
 nv pack
@@ -202,18 +196,18 @@ Dry run:
 nv publish --dry-run
 ```
 
-Отдельный dist-tag при публикации:
+Отдельный tag:
 
 ```sh
 nv publish --tag beta
 ```
 
 Что делает `publish`:
-- читает `nv.package.json`
-- забирает артефакты из `artifact`
-- отправляет manifest и файлы на `nvd`
-- сервер сохраняет каждую версию локально
-- сервер сразу начинает отдавать `view`, `resolve` и прямые download URL
+- читает `nv.package.json`;
+- забирает артефакты из `artifact`;
+- отправляет manifest и файлы на `nvd`;
+- сервер сохраняет каждую версию локально;
+- сервер сразу начинает отдавать `view`, `resolve` и прямые download URL.
 
 То есть выкладывать проект можно полностью из терминала, без ручного редактирования реестра и без публикации файлов на GitHub.
 
@@ -233,8 +227,8 @@ var/nvd     серверное хранилище nvd
 Источник NV-сайта лежит в `site/nv/`.
 
 Он намеренно простой:
-- первая секция — команда установки `nv` с переключением ОС;
-- ниже — все проекты с готовыми install-командами;
-- без header/footer и без маркетинговой витрины.
+- сверху — install surface для `nv` с переключением ОС;
+- ниже — все пакеты с командами вида `nv i package`;
+- без header, footer и витрины.
 
-Для деплоя достаточно синхронизировать содержимое `site/nv/` в `/var/www/neuralvv/nv` и прокинуть backend `nvd` под `/nv/api`.
+Для деплоя достаточно синхронизировать `site/nv/` в `/var/www/neuralv/nv` и отдать backend или статический shim под `/nv/api`.

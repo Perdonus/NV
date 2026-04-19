@@ -27,11 +27,13 @@ import (
 	"github.com/Perdonus/NV/internal/state"
 )
 
-const defaultBaseURL = "https://neuralvv.org/nv/api"
+const defaultBaseURL = "https://sosiskibot.ru/nv/api"
 
 const (
-	canonicalNeuralVPackage = "@lvls/neuralv"
-	canonicalNVPackage      = "@lvls/nv"
+	canonicalNeuralVPackage = "neuralv"
+	canonicalNVPackage      = "nv"
+	legacyNeuralVPackage    = "@lvls/neuralv"
+	legacyNVPackage         = "@lvls/nv"
 )
 
 var defaultWindowsProtocolSchemes = []string{"shieldsecurity", "neuralv"}
@@ -103,7 +105,7 @@ func handle(args []string, client *api.Client) error {
 			return err
 		}
 		return installPackage(client, spec, options)
-	case "uninstall", "rm":
+	case "uninstall", "remove", "rm":
 		if len(args) < 2 {
 			return errors.New("не хватает имени пакета: uninstall <package>")
 		}
@@ -117,7 +119,7 @@ func handle(args []string, client *api.Client) error {
 func printHelp() {
 	fmt.Println(`Команды:
   install | i <package[@version]> [--dir <path>]
-  uninstall | rm <package>
+  uninstall | remove | rm <package>
   update [package ...]
   outdated [package ...] [--json]
   list | ls
@@ -645,9 +647,9 @@ func parsePackageSpec(spec string) (string, string, error) {
 func normalizePackageName(name string) string {
 	normalized := strings.ToLower(strings.TrimSpace(name))
 	switch normalized {
-	case "neuralv", canonicalNeuralVPackage:
+	case "neuralv", canonicalNeuralVPackage, legacyNeuralVPackage:
 		return canonicalNeuralVPackage
-	case "nv", canonicalNVPackage:
+	case "nv", canonicalNVPackage, legacyNVPackage:
 		return canonicalNVPackage
 	default:
 		return normalized
@@ -1812,7 +1814,7 @@ func warnIfNVUpdateAvailable(args []string, client *api.Client) {
 
 	fmt.Fprintln(os.Stderr)
 	fmt.Fprintf(os.Stderr, "!!! ДОСТУПЕН НОВЫЙ NV %s (сейчас %s)\n", latestVersion, nvVersion)
-	fmt.Fprintln(os.Stderr, "!!! Обновление: nv install @lvls/nv")
+	fmt.Fprintln(os.Stderr, "!!! Обновление: nv i nv")
 	fmt.Fprintln(os.Stderr)
 }
 
@@ -2368,11 +2370,11 @@ func getInstalledStateRecord(installedState *state.File, name string) (state.Ins
 	}
 	switch canonical {
 	case canonicalNeuralVPackage:
-		if installed, ok := installedState.Get("neuralv"); ok {
+		if installed, ok := installedState.Get(legacyNeuralVPackage); ok {
 			return installed, true
 		}
 	case canonicalNVPackage:
-		if installed, ok := installedState.Get("nv"); ok {
+		if installed, ok := installedState.Get(legacyNVPackage); ok {
 			return installed, true
 		}
 	}

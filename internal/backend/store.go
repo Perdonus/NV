@@ -889,9 +889,9 @@ func canonicalPackageName(name string) string {
 	normalized := strings.ToLower(strings.TrimSpace(name))
 	switch normalized {
 	case "neuralv", "@lvls/neuralv":
-		return "@lvls/neuralv"
+		return "neuralv"
 	case "nv", "@lvls/nv":
-		return "@lvls/nv"
+		return "nv"
 	default:
 		return normalized
 	}

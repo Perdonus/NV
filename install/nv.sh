@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 set -eu
 
-SITE_BASE="${NV_SITE_BASE:-https://neuralvv.org}"
+SITE_BASE="${NV_SITE_BASE:-https://sosiskibot.ru}"
 API_BASE="${NV_BOOTSTRAP_BASE:-$SITE_BASE/nv/api}"
 INSTALL_ROOT="${NV_INSTALL_ROOT:-$HOME/.local/bin}"
 TARGET="$INSTALL_ROOT/nv"

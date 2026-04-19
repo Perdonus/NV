@@ -1,13 +1,13 @@
 {
   "packages": [
     {
-      "name": "@lvls/nv",
+      "name": "nv",
       "aliases": [
-        "nv"
+        "@lvls/nv"
       ],
       "title": "NV",
       "description": "Пакетный менеджер NV.",
-      "homepage": "https://neuralvv.org/nv/",
+      "homepage": "https://sosiskibot.ru/nv/",
       "variants": [
         {
           "id": "nv-linux",
@@ -18,8 +18,8 @@
           "install_strategy": "unix-self-binary",
           "install_root": "$HOME/.local/bin",
           "binary_name": "nv",
-          "install_command": "curl -fsSL https://neuralvv.org/install/nv.sh | sh",
-          "update_command": "nv install @lvls/nv",
+          "install_command": "curl -fsSL https://sosiskibot.ru/install/nv.sh | sh",
+          "update_command": "nv i nv",
           "update_policy": "nv-self",
           "metadata": {
             "bootstrapPlatform": "nv-linux"
@@ -34,8 +34,8 @@
           "install_strategy": "windows-self-binary",
           "install_root": "%LOCALAPPDATA%/NV",
           "binary_name": "nv.exe",
-          "install_command": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"irm https://neuralvv.org/install/nv.ps1 | iex\"",
-          "update_command": "nv install @lvls/nv",
+          "install_command": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"irm https://sosiskibot.ru/install/nv.ps1 | iex\"",
+          "update_command": "nv i nv",
           "update_policy": "nv-self",
           "metadata": {
             "bootstrapPlatform": "nv-windows"
@@ -44,9 +44,9 @@
       ]
     },
     {
-      "name": "@lvls/neuralv",
+      "name": "neuralv",
       "aliases": [
-        "neuralv"
+        "@lvls/neuralv"
       ],
       "title": "NeuralV",
       "description": "Клиент защиты NeuralV.",
@@ -64,8 +64,8 @@
           "launcher_path": "bin/NeuralV",
           "binary_name": "neuralv",
           "wrapper_name": "neuralv",
-          "install_command": "nv install @lvls/neuralv",
-          "update_command": "nv update @lvls/neuralv"
+          "install_command": "nv i neuralv",
+          "update_command": "nv update neuralv"
         },
         {
           "id": "windows",
@@ -78,8 +78,8 @@
           "install_root": "%LOCALAPPDATA%/Programs/NeuralV",
           "launcher_path": "NeuralV.exe",
           "binary_name": "neuralv.exe",
-          "install_command": "nv install @lvls/neuralv",
-          "update_command": "nv update @lvls/neuralv"
+          "install_command": "nv i neuralv",
+          "update_command": "nv update neuralv"
         }
       ]
     }

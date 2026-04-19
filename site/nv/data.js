@@ -17,20 +17,13 @@ export const installTargets = {
 
 export const fallbackProjects = [
   {
-    name: "@lvls/nv",
+    name: "nv",
     title: "NV",
-    latestVersion: "1.4.0",
-    commands: [],
+    latestVersion: "1.4.1",
   },
   {
-    name: "@lvls/neuralv",
+    name: "neuralv",
     title: "NeuralV",
     latestVersion: "1.5.33",
-    commands: [
-      {
-        label: "Установить",
-        command: "nv install @lvls/neuralv",
-      },
-    ],
   },
 ];

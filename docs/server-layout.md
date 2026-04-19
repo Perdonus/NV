@@ -9,14 +9,14 @@ var/nvd/
   v1/
     nvd.sqlite
     files/
-      @lvls-nv/
+      nv/
         nv-linux/
-          1.4.0/
+          1.4.1/
             nv-linux.tar.gz
         nv-windows/
-          1.4.0/
+          1.4.1/
             nv.exe
-      @scope-project/
+      project/
         linux/
           1.0.0/
             project-linux.tar.gz
@@ -30,7 +30,7 @@ var/nvd/
 - `package_aliases` — алиасы пакета
 - `variants` — системные варианты пакета
 - `releases` — файл для конкретной версии и варианта
-- `package_versions` — README и notes для версии
+- `package_versions` — README и notes по версии
 - `package_dist_tags` — `latest`, `beta` и любые другие теги
 
 Что умеет backend:
@@ -46,5 +46,5 @@ var/nvd/
 1. сохраняет артефакт в `files/`
 2. обновляет release index
 3. сохраняет `dist-tags`
-4. сохраняет README/notes версии
-5. начинает сразу отдавать новый `view/resolve/download`
+4. сохраняет README и notes версии
+5. начинает сразу отдавать новый `view`, `resolve` и download URL

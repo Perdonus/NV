@@ -109,9 +109,6 @@ func (loaded *loadedPackageManifest) normalizeAndValidate() error {
 	if strings.TrimSpace(loaded.Manifest.Name) == "" {
 		return errors.New("manifest не содержит name")
 	}
-	if !strings.HasPrefix(loaded.Manifest.Name, "@") {
-		return errors.New("name должен быть namespaced, например @scope/project")
-	}
 	if normalizedVersion, err := semver.Normalize(strings.TrimSpace(loaded.Manifest.Version)); err != nil {
 		return fmt.Errorf("manifest содержит некорректную version: %w", err)
 	} else {
@@ -235,4 +232,3 @@ func (loaded *loadedPackageManifest) publishRequest(dryRun bool) (api.PublishReq
 		DryRun:        dryRun,
 	}, payload, nil
 }
-

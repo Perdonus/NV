@@ -10,19 +10,20 @@
 </head>
 <body>
   <main class="shell">
-    <section class="install-card" aria-label="NV install">
+    <section class="install-card" aria-label="Установка NV">
       <div class="toggle-row" role="group" aria-label="Operating system">
         <button class="toggle" type="button" data-os-toggle="linux" aria-pressed="true">Linux</button>
         <button class="toggle" type="button" data-os-toggle="windows" aria-pressed="false">Windows</button>
       </div>
 
       <button class="command-card command-card--hero" type="button" data-copy-command>
-        <span class="command-chip" data-command-os>Linux</span>
-        <code class="command-text" data-command-text>curl -fsSL https://neuralvv.org/install/nv.sh | sh</code>
+        <span class="command-label">Установить NV</span>
+        <code class="command-text" data-command-text>curl -fsSL https://sosiskibot.ru/install/nv.sh | sh</code>
       </button>
     </section>
 
-    <ul class="project-list" id="project-list" aria-label="Projects"></ul>
+    <div class="section-tag">Пакеты</div>
+    <ul class="package-list" id="project-list" aria-label="Пакеты"></ul>
   </main>
 
   <script type="module" src="./app.js"></script>

@@ -1,7 +1,6 @@
 import { apiBase, fallbackProjects, installTargets } from "./data.js";
 
 const heroCommand = document.querySelector("[data-copy-command]");
-const heroOsChip = document.querySelector("[data-command-os]");
 const heroCommandText = document.querySelector("[data-command-text]");
 const osButtons = Array.from(document.querySelectorAll("[data-os-toggle]"));
 const projectList = document.querySelector("#project-list");
@@ -14,7 +13,6 @@ function setHeroCommand(os) {
   if (!target) return;
 
   activeOs = os;
-  heroOsChip.textContent = target.label;
   heroCommandText.textContent = target.command;
   heroCommand.dataset.copyCommand = target.command;
 
@@ -24,76 +22,51 @@ function setHeroCommand(os) {
 }
 
 function packageInstallCommand(pkg) {
-  const matchingVariant = Array.isArray(pkg.variants)
-    ? pkg.variants.find((variant) => variant?.os === activeOs)
-    : null;
-  if (matchingVariant?.install_command) {
-    return matchingVariant.install_command;
-  }
-  if (pkg.name === "@lvls/nv") {
-    const target = installTargets[activeOs] || installTargets.linux;
-    return target.command;
-  }
-  return `nv install ${pkg.name}`;
+  return `nv i ${pkg.name}`;
 }
 
-function createCommandButton(command) {
-  const button = document.createElement("button");
-  button.className = "project-command";
-  button.type = "button";
-  button.dataset.copyCommand = command.command;
-
-  const chip = document.createElement("span");
-  chip.className = "command-chip";
-  chip.textContent = command.label;
-
-  const text = document.createElement("code");
-  text.className = "command-text";
-  text.textContent = command.command;
-
-  button.append(chip, text);
-  return button;
-}
-
-function createProjectCard(project) {
+function createPackageCard(project) {
   const item = document.createElement("li");
   const card = document.createElement("article");
-  card.className = "project-card";
+  card.className = "package-card";
 
   const top = document.createElement("div");
-  top.className = "project-top";
+  top.className = "package-top";
 
   const title = document.createElement("div");
-  title.className = "project-title";
+  title.className = "package-title";
   title.textContent = project.title || project.name;
-
   top.append(title);
+
   if (project.latestVersion) {
     const version = document.createElement("span");
-    version.className = "project-version";
+    version.className = "package-version";
     version.textContent = project.latestVersion;
     top.append(version);
   }
 
-  const commands = document.createElement("div");
-  commands.className = "project-commands";
-  const projectCommands = project.commands?.length
-    ? project.commands
-    : [
-        {
-          label: project.name === "@lvls/nv" ? (installTargets[activeOs]?.label || "Linux") : "Установить",
-          command: packageInstallCommand(project),
-        },
-      ];
-  commands.append(...projectCommands.map(createCommandButton));
+  const commandButton = document.createElement("button");
+  commandButton.className = "package-command";
+  commandButton.type = "button";
+  commandButton.dataset.copyCommand = packageInstallCommand(project);
 
-  card.append(top, commands);
+  const commandText = document.createElement("code");
+  commandText.className = "command-text";
+  commandText.textContent = commandButton.dataset.copyCommand;
+  commandButton.append(commandText);
+
+  card.append(top, commandButton);
   item.append(card);
   return item;
 }
 
 function renderProjects(projects) {
-  projectList.replaceChildren(...projects.map(createProjectCard));
+  const ordered = [...projects].sort((left, right) => {
+    if (left.name === "nv") return -1;
+    if (right.name === "nv") return 1;
+    return (left.title || left.name).localeCompare(right.title || right.name, "ru");
+  });
+  projectList.replaceChildren(...ordered.map(createPackageCard));
 }
 
 function normalizePackagesResponse(payload) {
@@ -104,8 +77,6 @@ function normalizePackagesResponse(payload) {
     name: pkg.name,
     title: pkg.title || pkg.name,
     latestVersion: pkg.latest_version || "",
-    variants: Array.isArray(pkg.variants) ? pkg.variants : [],
-    commands: [],
   }));
 }
 
@@ -132,7 +103,7 @@ document.addEventListener("click", async (event) => {
   try {
     await navigator.clipboard.writeText(command);
   } catch {
-    // noop: fallback state still changes below
+    // noop
   }
 
   target.classList.add("is-copied");
@@ -145,7 +116,6 @@ document.addEventListener("click", async (event) => {
 osButtons.forEach((button) => {
   button.addEventListener("click", () => {
     setHeroCommand(button.dataset.osToggle);
-    loadProjects();
   });
 });
 

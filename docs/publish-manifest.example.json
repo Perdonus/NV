@@ -1,11 +1,11 @@
 {
-  "name": "@lvls/nv",
-  "version": "1.4.0",
+  "name": "nv",
+  "version": "1.4.1",
   "title": "NV",
   "description": "Пакетный менеджер NV.",
-  "homepage": "https://neuralvv.org/nv/",
+  "homepage": "https://sosiskibot.ru/nv/",
   "aliases": [
-    "nv"
+    "@lvls/nv"
   ],
   "dist_tags": [
     "latest"
