@@ -212,7 +212,7 @@ func (s *Service) handlePackageView(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	selectedVersion := resolveRequestedVersion(strings.TrimSpace(r.URL.Query().Get("version")), record.LatestVersion, distTags)
-	versions := uniqueReleaseVersions(bundle.Releases)
+	versions := knownVersions(record, bundle.Releases)
 	versionMeta, err := s.store.VersionMetadata(r.Context(), record.Name, selectedVersion)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		writeError(w, http.StatusInternalServerError, err)
@@ -282,21 +282,28 @@ func (s *Service) handleBootstrapManifest(w http.ResponseWriter, r *http.Request
 				if !strings.EqualFold(variant.ID, platform) && !strings.EqualFold(variant.OS, platform) {
 					continue
 				}
-				release, ok := releaseForVariantAndVersion(bundle.Releases, variant.ID, record.LatestVersion)
-				if !ok {
-					continue
-				}
-				response.Artifacts = append(response.Artifacts, bootstrapArtifact{
-					Platform:    variant.ID,
-					Version:     release.Version,
-					Channel:     variant.Channel,
-					FileName:    release.FileName,
-					DownloadURL: joinURL(s.baseURL(r), fileURLPath(release.RelativePath)),
-					SHA256:      release.SHA256,
+				artifact := bootstrapArtifact{
+					Platform: variant.ID,
+					Version:  chooseString(variant.Version, record.LatestVersion),
+					Channel:  variant.Channel,
+					FileName: variant.FileName,
+					SHA256:   variant.SHA256,
 					Metadata: map[string]any{
 						"package": record.Name,
 					},
-				})
+				}
+				if release, ok := releaseForVariantAndVersion(bundle.Releases, variant.ID, record.LatestVersion); ok {
+					artifact.Version = chooseString(release.Version, artifact.Version)
+					artifact.FileName = chooseString(release.FileName, artifact.FileName)
+					artifact.DownloadURL = joinURL(s.baseURL(r), fileURLPath(release.RelativePath))
+					artifact.SHA256 = chooseString(release.SHA256, artifact.SHA256)
+				} else {
+					artifact.DownloadURL = absoluteDownloadURL(s.baseURL(r), variant.DownloadURL)
+				}
+				if strings.TrimSpace(artifact.DownloadURL) == "" {
+					continue
+				}
+				response.Artifacts = append(response.Artifacts, artifact)
 			}
 		}
 		if len(response.Artifacts) == 0 {
@@ -716,6 +723,23 @@ func resolvePackage(bundle packageBundle, record PackageRecord, version, goos, v
 
 	release, ok := releaseForVariantAndVersion(bundle.Releases, selected.ID, resolvedVersion)
 	if !ok {
+		fallbackVersion := chooseString(selected.Version, record.LatestVersion)
+		fallbackURL := absoluteDownloadURL(baseURL, selected.DownloadURL)
+		if strings.EqualFold(strings.TrimSpace(fallbackVersion), strings.TrimSpace(resolvedVersion)) && strings.TrimSpace(fallbackURL) != "" {
+			selected = cloneVariant(*selected)
+			selected.Version = fallbackVersion
+			selected.DownloadURL = fallbackURL
+			out := ResolvedPackage{
+				Name:            record.Name,
+				Title:           record.Title,
+				Description:     record.Description,
+				Homepage:        record.Homepage,
+				LatestVersion:   record.LatestVersion,
+				ResolvedVersion: resolvedVersion,
+				Variant:         *selected,
+			}
+			return out, nil
+		}
 		return ResolvedPackage{}, fmt.Errorf("package %s variant %s version %s is not published", record.Name, selected.ID, resolvedVersion)
 	}
 	selected = cloneVariant(*selected)
@@ -814,6 +838,33 @@ func uniqueReleaseVersions(releases []sqliteReleaseRow) []string {
 	return versions
 }
 
+func knownVersions(record PackageRecord, releases []sqliteReleaseRow) []string {
+	versions := uniqueReleaseVersions(releases)
+	if len(versions) > 0 {
+		return versions
+	}
+	seen := map[string]struct{}{}
+	appendVersion := func(value string) {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			return
+		}
+		if _, exists := seen[value]; exists {
+			return
+		}
+		seen[value] = struct{}{}
+		versions = append(versions, value)
+	}
+	appendVersion(record.LatestVersion)
+	for _, variant := range record.Variants {
+		appendVersion(variant.Version)
+	}
+	sort.SliceStable(versions, func(i, j int) bool {
+		return compareVersionStrings(versions[i], versions[j]) > 0
+	})
+	return versions
+}
+
 func packageVersionView(bundle packageBundle, record PackageRecord, version string, distTags []string, readme string, baseURL string) PackageVersionView {
 	selected := strings.TrimSpace(version)
 	if selected == "" || selected == "latest" {
@@ -824,6 +875,15 @@ func packageVersionView(bundle packageBundle, record PackageRecord, version stri
 	for _, variant := range record.Variants {
 		release, ok := releaseForVariantAndVersion(bundle.Releases, variant.ID, selected)
 		if !ok {
+			if !strings.EqualFold(strings.TrimSpace(variant.Version), strings.TrimSpace(selected)) {
+				continue
+			}
+			clone := cloneVariant(variant)
+			clone.DownloadURL = absoluteDownloadURL(baseURL, clone.DownloadURL)
+			if strings.TrimSpace(clone.DownloadURL) == "" {
+				continue
+			}
+			variants = append(variants, clone)
 			continue
 		}
 		clone := cloneVariant(variant)
@@ -916,6 +976,18 @@ func distTagMapFromSlice(tags []string, version string) map[string]string {
 		result["latest"] = version
 	}
 	return result
+}
+
+func absoluteDownloadURL(baseURL, raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	lower := strings.ToLower(raw)
+	if strings.HasPrefix(lower, "http://") || strings.HasPrefix(lower, "https://") {
+		return raw
+	}
+	return joinURL(baseURL, raw)
 }
 
 func (s *Service) authorized(r *http.Request) bool {

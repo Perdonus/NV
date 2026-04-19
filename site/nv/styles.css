@@ -98,6 +98,13 @@ code {
   transition: border-color 160ms ease, background-color 160ms ease;
 }
 
+.command-main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
 .command-card:hover,
 .command-card.is-copied,
 .package-command:hover,
@@ -141,6 +148,48 @@ code {
   line-height: 1.55;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+  flex: 1 1 auto;
+}
+
+.copy-badge {
+  position: relative;
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  opacity: 0.88;
+}
+
+.copy-badge__sheet {
+  position: absolute;
+  border: 1px solid var(--outline-strong);
+  border-radius: 8px;
+  background: rgba(158, 197, 255, 0.08);
+  transition: transform 160ms ease, border-color 160ms ease, background-color 160ms ease;
+}
+
+.copy-badge__sheet--back {
+  inset: 3px 2px 2px 6px;
+}
+
+.copy-badge__sheet--front {
+  inset: 1px 5px 5px 3px;
+  background: rgba(158, 197, 255, 0.18);
+}
+
+.command-card:hover .copy-badge__sheet--front,
+.command-card.is-copied .copy-badge__sheet--front,
+.package-command:hover .copy-badge__sheet--front,
+.package-command.is-copied .copy-badge__sheet--front {
+  border-color: rgba(158, 197, 255, 0.42);
+  background: rgba(158, 197, 255, 0.24);
+  transform: translateY(-1px);
+}
+
+.command-card:hover .copy-badge__sheet--back,
+.command-card.is-copied .copy-badge__sheet--back,
+.package-command:hover .copy-badge__sheet--back,
+.package-command.is-copied .copy-badge__sheet--back {
+  border-color: rgba(158, 197, 255, 0.3);
 }
 
 .section-tag {
@@ -188,6 +237,10 @@ code {
   transition: border-color 160ms ease, background-color 160ms ease;
 }
 
+.package-command .command-main {
+  align-items: flex-start;
+}
+
 @media (max-width: 719px) {
   .shell {
     padding: 18px 12px 36px;
@@ -205,5 +258,9 @@ code {
   .package-top {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .command-main {
+    align-items: flex-start;
   }
 }

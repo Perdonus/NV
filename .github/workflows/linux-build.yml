@@ -9,6 +9,7 @@ on:
       - 'cmd/**'
       - 'internal/**'
       - 'install/**'
+      - 'registry/**'
       - 'go.mod'
       - 'VERSION'
       - 'README.md'
@@ -38,11 +39,19 @@ jobs:
           set -euo pipefail
           mkdir -p dist
           go build -trimpath -ldflags="-s -w -X main.nvVersion=${{ steps.version.outputs.semver }}" -o dist/nv ./cmd/nv
+          go build -trimpath -ldflags="-s -w" -o dist/nvd ./cmd/nvd
           tar -C dist -czf dist/nv-linux.tar.gz nv
+          mkdir -p dist/nvd-bundle/registry dist/nvd-bundle/install
+          cp dist/nvd dist/nvd-bundle/nvd
+          cp registry/packages.json dist/nvd-bundle/registry/packages.json
+          cp install/nvd.service dist/nvd-bundle/install/nvd.service
+          tar -C dist/nvd-bundle -czf dist/nvd-linux.tar.gz .
       - uses: actions/upload-artifact@v4
         with:
           name: nv-linux
-          path: dist/nv-linux.tar.gz
+          path: |
+            dist/nv-linux.tar.gz
+            dist/nvd-linux.tar.gz
 
   publish-linux:
     name: Publish NV Linux Branch
@@ -69,6 +78,8 @@ jobs:
           mkdir -p publish/linux
           cp stage/nv-linux.tar.gz "publish/linux/nv-linux-${semver}.tar.gz"
           cp stage/nv-linux.tar.gz publish/linux/nv-linux.tar.gz
+          cp stage/nvd-linux.tar.gz "publish/linux/nvd-linux-${semver}.tar.gz"
+          cp stage/nvd-linux.tar.gz publish/linux/nvd-linux.tar.gz
           sha="$(sha256sum "publish/linux/nv-linux-${semver}.tar.gz" | awk '{print $1}')"
           export SEMVER="$semver" SHA="$sha" RELEASE_TAG="$release_tag" RELEASE_BASE="$release_base"
           python3 - <<'PY'
@@ -107,7 +118,9 @@ jobs:
           fi
           gh release upload "$release_tag" \
             "publish/linux/nv-linux-${semver}.tar.gz#nv-linux-${semver}.tar.gz" \
+            "publish/linux/nvd-linux-${semver}.tar.gz#nvd-linux-${semver}.tar.gz" \
             "stage/nv-linux.tar.gz#nv-linux.tar.gz" \
+            "stage/nvd-linux.tar.gz#nvd-linux.tar.gz" \
             "install/nv.sh#nv.sh" \
             --repo "$GITHUB_REPOSITORY" \
             --clobber

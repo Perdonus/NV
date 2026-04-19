@@ -52,17 +52,16 @@ nv help
 Установить пакет:
 
 ```sh
-nv i neuralv
+nv i nv
 ```
 
 Посмотреть, что лежит в реестре:
 
 ```sh
-nv view neuralv
-nv view neuralv versions --json
 nv view nv homepage
-nv view project dist_tags
-nv view project@beta version
+nv view nv versions --json
+nv view nv dist_tags
+nv view nv@latest version
 ```
 
 Проверить обновления:
@@ -92,12 +91,17 @@ nv update
 ### 1. Подними backend
 
 ```sh
-go run ./cmd/nvd \
-  --addr :8080 \
-  --data-dir ./var/nvd \
-  --seed ./registry/packages.json \
-  --public-base-url https://sosiskibot.ru/nv/api \
-  --publish-token <token>
+curl -fsSL https://github.com/Perdonus/NV/releases/download/v1.4.1/nvd-linux.tar.gz -o /tmp/nvd-linux.tar.gz
+mkdir -p /opt/nvd/current
+tar -xzf /tmp/nvd-linux.tar.gz -C /opt/nvd/current
+cp /opt/nvd/current/install/nvd.service /etc/systemd/system/nvd.service
+cat >/etc/nvd.env <<'EOF'
+NVD_PUBLISH_TOKEN=<token>
+NVD_PUBLIC_BASE_URL=https://sosiskibot.ru/nv/api
+NVD_FILES_DIR=/var/www/neuralv/nv/files
+EOF
+systemctl daemon-reload
+systemctl enable --now nvd.service
 ```
 
 Что отдаёт `nvd`:
@@ -111,6 +115,8 @@ go run ./cmd/nvd \
 - `POST /publish`
 
 Схема хранения: [docs/server-layout.md](/root/NV/docs/server-layout.md)
+
+`nvd` читает seed-каталог из `registry/packages.json`, а готовые публичные файлы может отдавать напрямую из `NVD_FILES_DIR`. Это позволяет сразу перевести `/nv/api` на живой backend, не оставляя статический shim.
 
 ### 2. Один раз авторизуйся
 
@@ -231,4 +237,4 @@ var/nvd     серверное хранилище nvd
 - ниже — все пакеты с командами вида `nv i package`;
 - без header, footer и витрины.
 
-Для деплоя достаточно синхронизировать `site/nv/` в `/var/www/neuralv/nv` и отдать backend или статический shim под `/nv/api`.
+Для деплоя достаточно синхронизировать `site/nv/` в `/var/www/neuralv/nv`, поднять `nvd` и проксировать `/nv/api` в backend.

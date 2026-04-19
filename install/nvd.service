@@ -1,0 +1,20 @@
+[Unit]
+Description=NV registry backend
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/nvd/current
+Environment=NVD_ADDR=127.0.0.1:9640
+Environment=NVD_DATA_DIR=/var/lib/nvd
+Environment=NVD_FILES_DIR=/var/www/neuralv/nv/files
+Environment=NVD_SEED_PATH=/opt/nvd/current/registry/packages.json
+Environment=NVD_PUBLIC_BASE_URL=https://sosiskibot.ru/nv/api
+EnvironmentFile=-/etc/nvd.env
+ExecStart=/opt/nvd/current/nvd
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

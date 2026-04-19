@@ -50,10 +50,23 @@ function createPackageCard(project) {
   commandButton.type = "button";
   commandButton.dataset.copyCommand = packageInstallCommand(project);
 
+  const commandMain = document.createElement("span");
+  commandMain.className = "command-main";
+
   const commandText = document.createElement("code");
   commandText.className = "command-text";
   commandText.textContent = commandButton.dataset.copyCommand;
-  commandButton.append(commandText);
+
+  const copyBadge = document.createElement("span");
+  copyBadge.className = "copy-badge";
+  copyBadge.setAttribute("aria-hidden", "true");
+  copyBadge.innerHTML = `
+    <span class="copy-badge__sheet copy-badge__sheet--back"></span>
+    <span class="copy-badge__sheet copy-badge__sheet--front"></span>
+  `;
+
+  commandMain.append(commandText, copyBadge);
+  commandButton.append(commandMain);
 
   card.append(top, commandButton);
   item.append(card);

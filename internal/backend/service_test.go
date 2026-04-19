@@ -31,7 +31,7 @@ func TestPackageDetailsFromSeed(t *testing.T) {
 	if !response.Success {
 		t.Fatalf("expected success")
 	}
-	if response.Package.Name != "@lvls/nv" {
+	if response.Package.Name != "nv" {
 		t.Fatalf("unexpected package name: %s", response.Package.Name)
 	}
 	if len(response.Package.Variants) == 0 {

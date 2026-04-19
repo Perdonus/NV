@@ -2,6 +2,7 @@
   "packages": [
     {
       "name": "nv",
+      "version": "1.4.1",
       "aliases": [
         "@lvls/nv"
       ],
@@ -13,8 +14,12 @@
           "id": "nv-linux",
           "label": "Linux",
           "os": "linux",
+          "version": "1.4.1",
           "default": true,
           "is_default": true,
+          "file_name": "nv-linux-1.4.1.tar.gz",
+          "download_url": "/files/nv-linux-1.4.1.tar.gz",
+          "sha256": "89727cb77509b56245416025ba10d15698ecdb51bfc49a7e4feada46d511192c",
           "install_strategy": "unix-self-binary",
           "install_root": "$HOME/.local/bin",
           "binary_name": "nv",
@@ -29,8 +34,12 @@
           "id": "nv-windows",
           "label": "Windows",
           "os": "windows",
+          "version": "1.4.1",
           "default": true,
           "is_default": true,
+          "file_name": "nv-1.4.1.exe",
+          "download_url": "/files/nv-1.4.1.exe",
+          "sha256": "bf8aac20e74174f752b674beaba3f9ef3ed690ef54e468893d29f96eb22c6a95",
           "install_strategy": "windows-self-binary",
           "install_root": "%LOCALAPPDATA%/NV",
           "binary_name": "nv.exe",
@@ -40,46 +49,6 @@
           "metadata": {
             "bootstrapPlatform": "nv-windows"
           }
-        }
-      ]
-    },
-    {
-      "name": "neuralv",
-      "aliases": [
-        "@lvls/neuralv"
-      ],
-      "title": "NeuralV",
-      "description": "Клиент защиты NeuralV.",
-      "homepage": "https://neuralvv.org/",
-      "variants": [
-        {
-          "id": "linux",
-          "label": "Linux",
-          "os": "linux",
-          "default": true,
-          "is_default": true,
-          "install_strategy": "linux-desktop-unified",
-          "uninstall_strategy": "linux-remove-dir",
-          "install_root": "$HOME/.local/opt/NeuralV",
-          "launcher_path": "bin/NeuralV",
-          "binary_name": "neuralv",
-          "wrapper_name": "neuralv",
-          "install_command": "nv i neuralv",
-          "update_command": "nv update neuralv"
-        },
-        {
-          "id": "windows",
-          "label": "Windows",
-          "os": "windows",
-          "default": true,
-          "is_default": true,
-          "install_strategy": "windows-desktop-bundle",
-          "uninstall_strategy": "windows-remove-dir",
-          "install_root": "%LOCALAPPDATA%/Programs/NeuralV",
-          "launcher_path": "NeuralV.exe",
-          "binary_name": "neuralv.exe",
-          "install_command": "nv i neuralv",
-          "update_command": "nv update neuralv"
         }
       ]
     }

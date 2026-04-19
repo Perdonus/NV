@@ -18,6 +18,7 @@ func main() {
 	var (
 		addr          = flag.String("addr", envOr("NVD_ADDR", ":8080"), "listen address")
 		dataDir       = flag.String("data-dir", envOr("NVD_DATA_DIR", filepath.Join(".", "var", "nvd")), "storage directory")
+		filesDir      = flag.String("files-dir", envOr("NVD_FILES_DIR", ""), "artifact directory for /files")
 		seedPath      = flag.String("seed", envOr("NVD_SEED_PATH", defaultSeedPath()), "seed catalog path")
 		publicBaseURL = flag.String("public-base-url", envOr("NVD_PUBLIC_BASE_URL", ""), "public base URL for absolute links")
 		publishToken  = flag.String("publish-token", envOr("NVD_PUBLISH_TOKEN", ""), "publisher bearer token")
@@ -26,6 +27,7 @@ func main() {
 
 	service, err := backend.NewService(backend.Config{
 		DataDir:       *dataDir,
+		FilesDir:      *filesDir,
 		SeedPath:      *seedPath,
 		PublicBaseURL: *publicBaseURL,
 		PublishToken:  *publishToken,

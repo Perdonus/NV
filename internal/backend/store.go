@@ -38,8 +38,11 @@ func OpenStore(cfg Config) (*Store, error) {
 
 	layoutVersion := LayoutVersion
 	layoutDir := filepath.Join(dataDir, layoutVersion)
-	artifactsDir := filepath.Join(layoutDir, "files")
 	dbPath := filepath.Join(layoutDir, "nvd.sqlite")
+	artifactsDir := strings.TrimSpace(cfg.FilesDir)
+	if artifactsDir == "" {
+		artifactsDir = filepath.Join(layoutDir, "files")
+	}
 
 	if err := os.MkdirAll(artifactsDir, 0o755); err != nil {
 		return nil, err
@@ -156,12 +159,13 @@ func (s *Store) upsertSeedPackageSQL(pkg SeedPackage) string {
 	name := canonicalPackageName(pkg.Name)
 	aliases := normalizeAliases(pkg.Aliases)
 	aliasesJSON := mustJSON(aliases)
+	initialVersion := strings.TrimSpace(pkg.Version)
 	now := time.Now().UTC().Format(time.RFC3339)
 
 	var script strings.Builder
 	script.WriteString(fmt.Sprintf(
 		`INSERT INTO packages (name, title, description, homepage, aliases_json, latest_version, created_at, updated_at)
-VALUES (%s, %s, %s, %s, %s, COALESCE((SELECT latest_version FROM packages WHERE name = %s), ''), %s, %s)
+VALUES (%s, %s, %s, %s, %s, COALESCE(NULLIF((SELECT latest_version FROM packages WHERE name = %s), ''), %s), %s, %s)
 ON CONFLICT(name) DO UPDATE SET
 	title=excluded.title,
 	description=excluded.description,
@@ -175,6 +179,7 @@ ON CONFLICT(name) DO UPDATE SET
 		sqlQuote(pkg.Homepage),
 		sqlQuote(aliasesJSON),
 		sqlQuote(name),
+		sqlQuote(initialVersion),
 		sqlQuote(now),
 		sqlQuote(now),
 	))

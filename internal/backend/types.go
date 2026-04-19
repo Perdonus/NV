@@ -12,6 +12,7 @@ const (
 
 type Config struct {
 	DataDir       string
+	FilesDir      string
 	SeedPath      string
 	PublicBaseURL string
 	PublishToken  string
