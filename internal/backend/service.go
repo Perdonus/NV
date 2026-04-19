@@ -726,9 +726,9 @@ func resolvePackage(bundle packageBundle, record PackageRecord, version, goos, v
 		fallbackVersion := chooseString(selected.Version, record.LatestVersion)
 		fallbackURL := absoluteDownloadURL(baseURL, selected.DownloadURL)
 		if strings.EqualFold(strings.TrimSpace(fallbackVersion), strings.TrimSpace(resolvedVersion)) && strings.TrimSpace(fallbackURL) != "" {
-			selected = cloneVariant(*selected)
-			selected.Version = fallbackVersion
-			selected.DownloadURL = fallbackURL
+			clone := cloneVariant(*selected)
+			clone.Version = fallbackVersion
+			clone.DownloadURL = fallbackURL
 			out := ResolvedPackage{
 				Name:            record.Name,
 				Title:           record.Title,
@@ -736,17 +736,17 @@ func resolvePackage(bundle packageBundle, record PackageRecord, version, goos, v
 				Homepage:        record.Homepage,
 				LatestVersion:   record.LatestVersion,
 				ResolvedVersion: resolvedVersion,
-				Variant:         *selected,
+				Variant:         clone,
 			}
 			return out, nil
 		}
 		return ResolvedPackage{}, fmt.Errorf("package %s variant %s version %s is not published", record.Name, selected.ID, resolvedVersion)
 	}
-	selected = cloneVariant(*selected)
-	selected.Version = release.Version
-	selected.FileName = release.FileName
-	selected.SHA256 = release.SHA256
-	selected.DownloadURL = joinURL(baseURL, fileURLPath(release.RelativePath))
+	clone := cloneVariant(*selected)
+	clone.Version = release.Version
+	clone.FileName = release.FileName
+	clone.SHA256 = release.SHA256
+	clone.DownloadURL = joinURL(baseURL, fileURLPath(release.RelativePath))
 
 	out := ResolvedPackage{
 		Name:            record.Name,
@@ -755,7 +755,7 @@ func resolvePackage(bundle packageBundle, record PackageRecord, version, goos, v
 		Homepage:        record.Homepage,
 		LatestVersion:   record.LatestVersion,
 		ResolvedVersion: resolvedVersion,
-		Variant:         *selected,
+		Variant:         clone,
 	}
 	return out, nil
 }
