@@ -647,9 +647,9 @@ func parsePackageSpec(spec string) (string, string, error) {
 func normalizePackageName(name string) string {
 	normalized := strings.ToLower(strings.TrimSpace(name))
 	switch normalized {
-	case "neuralv", canonicalNeuralVPackage, legacyNeuralVPackage:
+	case canonicalNeuralVPackage, legacyNeuralVPackage:
 		return canonicalNeuralVPackage
-	case "nv", canonicalNVPackage, legacyNVPackage:
+	case canonicalNVPackage, legacyNVPackage:
 		return canonicalNVPackage
 	default:
 		return normalized
