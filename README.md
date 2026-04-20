@@ -91,7 +91,7 @@ nv update
 ### 1. Подними backend
 
 ```sh
-curl -fsSL https://github.com/Perdonus/NV/releases/download/v1.4.2/nvd-linux.tar.gz -o /tmp/nvd-linux.tar.gz
+curl -fsSL https://github.com/Perdonus/NV/releases/download/v1.4.3/nvd-linux.tar.gz -o /tmp/nvd-linux.tar.gz
 mkdir -p /opt/nvd/current
 tar -xzf /tmp/nvd-linux.tar.gz -C /opt/nvd/current
 cp /opt/nvd/current/install/nvd.service /etc/systemd/system/nvd.service

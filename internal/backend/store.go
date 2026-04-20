@@ -109,7 +109,6 @@ func (s *Store) execScript(ctx context.Context, sql string) error {
 		ctx,
 		"sqlite3",
 		"-cmd", "PRAGMA foreign_keys=ON",
-		"-cmd", "PRAGMA busy_timeout=5000",
 		s.dbPath,
 	)
 	cmd.Stdin = strings.NewReader(sql + "\n")
@@ -126,7 +125,6 @@ func (s *Store) queryJSON(ctx context.Context, sql string, dest any) error {
 		"sqlite3",
 		"-json",
 		"-cmd", "PRAGMA foreign_keys=ON",
-		"-cmd", "PRAGMA busy_timeout=5000",
 		s.dbPath,
 	)
 	cmd.Stdin = strings.NewReader(sql + "\n")
