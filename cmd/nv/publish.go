@@ -138,9 +138,11 @@ func publishCommand(client *api.Client, args []string) error {
 	if err != nil {
 		return err
 	}
-	if tagValue := strings.TrimSpace(tag); tagValue != "" {
+	if tagValue := normalizePackageTag(tag); tagValue != "" {
 		loaded.Manifest.DistTags = append(loaded.Manifest.DistTags, tagValue)
 		loaded.Manifest.DistTags = dedupeStrings(loaded.Manifest.DistTags)
+	} else if strings.TrimSpace(tag) != "" {
+		return fmt.Errorf("некорректный tag %q: используй буквы, цифры, '.', '-' или '_'", strings.TrimSpace(tag))
 	}
 	if notesPath := strings.TrimSpace(notes); notesPath != "" {
 		resolved := filepath.Join(loaded.Dir, filepath.FromSlash(notesPath))
@@ -161,10 +163,10 @@ func publishCommand(client *api.Client, args []string) error {
 	}
 	authToken := strings.TrimSpace(token)
 	if authToken == "" {
-		authToken = resolveAuthToken()
+		authToken = resolvePublishToken()
 	}
 	if authToken == "" {
-		return errors.New("токен публикации не найден: используй nv login --token <token> или NV_AUTH_TOKEN")
+		return errors.New("ключ публикации не найден: используй --token, NV_PUBLISH_TOKEN или nv login --token <key>")
 	}
 
 	response, err := targetClient.PublishPackage(request, authToken)

@@ -2,15 +2,15 @@
 
 `nv` — пакетный менеджер и publish CLI.
 
-Он делает четыре вещи:
-- ставит пакеты из серверного реестра;
-- показывает метаданные, версии и `dist-tags`;
-- умеет `view`, как `npm view`, но под NV-пакеты;
-- публикует новые версии прямо из терминала.
+`nvd` — backend этого же репозитория. Он хранит индекс пакетов в SQLite, артефакты локально на диске и отдаёт catalog, `view`, `resolve`, bootstrap manifest и publish API.
 
-`nvd` — backend этого же репозитория. Он хранит индекс пакетов в SQLite, артефакты локально на диске и отдаёт catalog, details, resolve, `view`, bootstrap manifest и publish API.
+Главная идея:
+- пакеты ставятся командами вида `nv i <package>`;
+- пакет можно запросить по фиксированной версии: `nv i <package>@1.4.5`;
+- пакет можно запросить по ветке обновлений: `nv i <package>@latest`, `nv i <package>@beta`, `nv i <package>@canary`;
+- сами ветки обновлений задаёт автор пакета через `dist_tags`.
 
-## Установка
+## Установка NV
 
 Linux:
 
@@ -24,22 +24,22 @@ Windows:
 powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://sosiskibot.ru/install/nv.ps1 | iex"
 ```
 
-Повторный запуск install-скрипта обновляет установленный `nv`.
+Повторный запуск install-скрипта обновляет уже установленный `nv`.
 
 ## Команды
 
 ```text
-nv install | i <package[@version]> [--dir <path>]
+nv install | i <package[@version|tag]> [--dir <path>]
 nv uninstall | remove | rm <package>
 nv update [package ...]
 nv outdated [package ...] [--json]
 nv list | ls
 nv search | find [query]
 nv info <package>
-nv view | show | v <package[@version]> [field] [--json] [--os <linux|windows|all>]
+nv view | show | v <package[@version|tag]> [field] [--json] [--os <linux|windows|all>]
 nv pack [--manifest <file>] [--out <file>]
-nv publish [--manifest <file>] [--tag <tag>] [--dry-run]
-nv login --token <token> [--server <url>]
+nv publish [--manifest <file>] [--tag <tag>] [--dry-run] [--token <key>] [--server <url>]
+nv login --token <key> [--server <url>]
 nv logout
 nv whoami
 nv server
@@ -47,94 +47,153 @@ nv version
 nv help
 ```
 
-## Базовый поток
+## Как работает спецификация пакета
 
-Установить пакет:
+NV понимает три формы:
 
 ```sh
 nv i nv
+nv i nv@1.4.5
+nv i nv@beta
 ```
 
-Посмотреть, что лежит в реестре:
+Что это значит:
+- `nv i nv` — поставить то, что сейчас висит на `latest`;
+- `nv i nv@1.4.5` — поставить конкретную semver-версию;
+- `nv i nv@beta` — поставить версию, на которую сейчас указывает `beta`.
+
+Теги не зашиты в клиент. Автор пакета может публиковать любые нормальные `dist_tags`:
+- `latest`
+- `beta`
+- `stable`
+- `canary`
+- `nightly`
+- и любые свои, если они состоят из букв, цифр, `.`, `_`, `-`.
+
+Примеры:
 
 ```sh
-nv view nv homepage
-nv view nv versions --json
+nv i nv@latest
+nv i nv@beta
 nv view nv dist_tags
-nv view nv@latest version
+nv view nv@beta version
+nv view nv@1.4.5 versions --json
 ```
 
-Проверить обновления:
+## Что уже умеет backend
+
+`nvd` уже поддерживает npm-подобную механику:
+- хранение `dist_tags` по каждому пакету;
+- выбор версии через `resolve`;
+- `view` с `dist_tags`, списком версий и выбранной версией;
+- bootstrap manifest;
+- локальное хранение артефактов на сервере, без зависимости от GitHub как source of truth.
+
+## Ключ публикации
+
+Для выкладки пакета нужен отдельный publish key.
+
+Серверная сторона:
+- ключ задаётся только на сервере через `NVD_PUBLISH_TOKEN`;
+- сервер сверяет его только серверно;
+- сервер не отдаёт этот ключ наружу никаким endpoint;
+- клиент получает только `ok / unauthorized`, но не может вытащить ключ из API.
+
+Клиентская сторона:
+- разово: `nv login --token <key>`;
+- или без сохранения: `nv publish --token <key>`;
+- или через env: `NV_PUBLISH_TOKEN=<key>`.
+
+Сейчас publish без ключа не должен использоваться. Это не публичная anonymous-операция.
+
+## Полный поток выкладки пакета
+
+Ниже один цельный сценарий. Этого файла достаточно, чтобы поднять publish и начать выкладывать пакеты.
+
+### 1. Поднять backend `nvd`
+
+Скачай готовый backend-архив из release:
 
 ```sh
-nv outdated
-nv update
-```
-
-## Что хранит сервер
-
-`nvd` не зависит от GitHub как от source of truth.
-
-Сервер хранит:
-- индекс пакетов в SQLite;
-- каждый опубликованный файл локально на диске;
-- каждую опубликованную версию отдельно;
-- `dist-tags` по пакетам;
-- README и notes по версиям.
-
-Минимальные зависимости сервера:
-- `sqlite3`
-- любой reverse proxy перед `nvd`
-
-## Публикация из терминала
-
-### 1. Подними backend
-
-```sh
-curl -fsSL https://github.com/Perdonus/NV/releases/download/v1.4.4/nvd-linux.tar.gz -o /tmp/nvd-linux.tar.gz
+curl -fsSL https://github.com/Perdonus/NV/releases/download/v1.4.5/nvd-linux.tar.gz -o /root/nvd-linux.tar.gz
 mkdir -p /opt/nvd/current
-tar -xzf /tmp/nvd-linux.tar.gz -C /opt/nvd/current
+tar -xzf /root/nvd-linux.tar.gz -C /opt/nvd/current
 cp /opt/nvd/current/install/nvd.service /etc/systemd/system/nvd.service
-cat >/etc/nvd.env <<'EOF'
-NVD_PUBLISH_TOKEN=<token>
-NVD_PUBLIC_BASE_URL=https://sosiskibot.ru/nv/api
+```
+
+Создай конфиг окружения:
+
+```sh
+cat >/etc/nvd.env <<'EOF_ENV'
+NVD_ADDR=127.0.0.1:9640
+NVD_DATA_DIR=/var/lib/nvd
 NVD_FILES_DIR=/var/www/neuralv/nv/files
-EOF
+NVD_SEED_PATH=/opt/nvd/current/registry/packages.json
+NVD_PUBLIC_BASE_URL=https://sosiskibot.ru/nv/api
+NVD_PUBLISH_TOKEN=<сильный_секретный_ключ>
+EOF_ENV
+```
+
+Запусти сервис:
+
+```sh
 systemctl daemon-reload
 systemctl enable --now nvd.service
+systemctl status nvd.service
 ```
 
-Что отдаёт `nvd`:
-- `GET /packages`
-- `GET /packages/details`
-- `GET /packages/resolve`
-- `GET /packages/view`
-- `GET /bootstrap/manifest`
-- `GET /files/*`
-- `GET /whoami`
-- `POST /publish`
-
-Схема хранения: [docs/server-layout.md](/root/NV/docs/server-layout.md)
-
-`nvd` читает seed-каталог из `registry/packages.json`, а готовые публичные файлы может отдавать напрямую из `NVD_FILES_DIR`. Это позволяет сразу перевести `/nv/api` на живой backend, не оставляя статический shim.
-
-### 2. Один раз авторизуйся
+Проверь backend локально:
 
 ```sh
-nv login --server https://sosiskibot.ru/nv/api --token <token>
+curl --noproxy '*' http://127.0.0.1:9640/healthz
 ```
 
-Проверить токен:
+Ожидаемый ответ:
+
+```text
+ok
+```
+
+### 2. Проксировать API наружу
+
+`nvd` должен жить за reverse proxy. Пример для nginx:
+
+```nginx
+location = /nv/api {
+    return 301 /nv/api/;
+}
+
+location ^~ /nv/api/files/ {
+    proxy_pass http://127.0.0.1:9640/files/;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Host $host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+}
+
+location ^~ /nv/api/ {
+    proxy_pass http://127.0.0.1:9640/;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Host $host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+}
+```
+
+После этого проверь внешние endpoints:
 
 ```sh
-nv whoami
+curl https://sosiskibot.ru/nv/api/packages?os=all
+curl https://sosiskibot.ru/nv/api/bootstrap/manifest?platform=nv-linux
 ```
 
-### 3. Подготовь `nv.package.json`
+### 3. Подготовить пакет
 
-Пример лежит в [docs/publish-manifest.example.json](/root/NV/docs/publish-manifest.example.json).
+В корне проекта создай `nv.package.json`.
 
-Минимальный манифест:
+Пример:
 
 ```json
 {
@@ -146,6 +205,7 @@ nv whoami
   "aliases": ["project-cli"],
   "dist_tags": ["latest"],
   "readme": "README.md",
+  "notes": "CHANGELOG.md",
   "variants": [
     {
       "id": "linux",
@@ -169,72 +229,152 @@ nv whoami
 }
 ```
 
-Что важно:
-- `name` — короткое имя пакета, без `@scope`;
+Что здесь важно:
+- `name` — короткое имя пакета без `@scope`;
 - `version` — semver;
-- каждый `variant` должен указывать реальный файл `artifact`;
-- `dist_tags` определяют, что увидит `nv view` и что поставит `nv i <package>@<tag>`;
-- если `dist_tags` не указаны, сервер трактует публикацию как `latest`.
+- `dist_tags` — ветки обновлений, на которые укажет эта публикация;
+- `artifact` — реальный файл, который уйдёт на сервер;
+- `default` — какой variant считать основным для своей ОС.
 
-### 4. Проверь пакет локально
+### 4. Подготовить ключ на клиенте
+
+Есть три варианта.
+
+Разово сохранить ключ:
+
+```sh
+nv login --server https://sosiskibot.ru/nv/api --token <key>
+```
+
+Или на один запуск:
+
+```sh
+nv publish --token <key>
+```
+
+Или через env:
+
+```sh
+export NV_PUBLISH_TOKEN=<key>
+```
+
+Проверка:
+
+```sh
+nv whoami
+```
+
+### 5. Проверить пакет локально
+
+Без отправки на сервер:
 
 ```sh
 nv pack
 ```
 
-Это соберёт локальный `.nvpack.tgz` без отправки на сервер.
+Это собирает локальный `.nvpack.tgz`, чтобы проверить manifest и набор файлов.
 
-### 5. Опубликуй
-
-```sh
-nv publish
-```
-
-Или с явным manifest:
-
-```sh
-nv publish --manifest ./nv.package.json
-```
-
-Dry run:
+### 6. Выполнить dry-run publish
 
 ```sh
 nv publish --dry-run
 ```
 
-Отдельный tag:
+Это прогоняет тот же publish-контур, но без финальной записи версии в реестр.
+
+### 7. Опубликовать
+
+Просто публикация:
+
+```sh
+nv publish
+```
+
+Явный manifest:
+
+```sh
+nv publish --manifest ./nv.package.json
+```
+
+С отдельным тегом:
 
 ```sh
 nv publish --tag beta
 ```
 
-Что делает `publish`:
-- читает `nv.package.json`;
-- забирает артефакты из `artifact`;
-- отправляет manifest и файлы на `nvd`;
-- сервер сохраняет каждую версию локально;
-- сервер сразу начинает отдавать `view`, `resolve` и прямые download URL.
+Можно публиковать сразу в несколько веток обновлений — просто перечисли их в `dist_tags` внутри manifest, а `--tag` используй как быстрый override/добавку.
 
-То есть выкладывать проект можно полностью из терминала, без ручного редактирования реестра и без публикации файлов на GitHub.
+### 8. Проверить результат
 
-## Структура репозитория
+После публикации проверь:
 
-```text
-cmd/nv      CLI
-cmd/nvd     backend
-install/    bootstrap scripts для Linux/Windows
-registry/   seed registry
-site/nv     статический NV сайт
-var/nvd     серверное хранилище nvd
+```sh
+nv view project
+nv view project dist_tags
+nv view project@beta version
+nv i project@latest
+nv i project@beta
+nv i project@1.0.0
 ```
 
-## Сайт
+## Что реально делает `nv publish`
 
-Источник NV-сайта лежит в `site/nv/`.
+`nv publish`:
+- читает `nv.package.json`;
+- читает `README.md` и `notes`, если они указаны;
+- забирает все variant-артефакты;
+- отправляет manifest и файлы в `nvd`;
+- `nvd` сохраняет артефакты локально на сервере;
+- `nvd` обновляет индекс пакета, версии и `dist_tags`;
+- после этого `view`, `resolve`, bootstrap и install начинают видеть новую версию.
 
-Он намеренно простой:
-- сверху — install surface для `nv` с переключением ОС;
-- ниже — все пакеты с командами вида `nv i package`;
-- без header, footer и витрины.
+То есть публикация идёт полностью из терминала. Без ручного редактирования реестра. Без ручного копирования файлов на GitHub release как обязательного шага.
 
-Для деплоя достаточно синхронизировать `site/nv/` в `/var/www/neuralv/nv`, поднять `nvd` и проксировать `/nv/api` в backend.
+## Как `dist_tags` ведут себя на практике
+
+Если ты публикуешь:
+
+- `1.0.0` с `dist_tags = ["latest"]`
+- `1.1.0` с `dist_tags = ["beta"]`
+- `1.0.1` с `dist_tags = ["latest", "stable"]`
+
+то получится:
+- `nv i project` -> `1.0.1`
+- `nv i project@latest` -> `1.0.1`
+- `nv i project@stable` -> `1.0.1`
+- `nv i project@beta` -> `1.1.0`
+- `nv i project@1.0.0` -> ровно `1.0.0`
+
+Это тот же базовый принцип, что в `npm`: semver-версия и человекочитаемые каналы сосуществуют одновременно.
+
+## Что хранит `nvd`
+
+`nvd` хранит:
+- `packages` — карточку пакета;
+- `variants` — платформенные варианты;
+- `releases` — конкретные опубликованные файлы;
+- `package_dist_tags` — `latest`, `beta` и любые другие каналы;
+- `package_versions` — README/notes по версии;
+- сами бинарники в `NVD_FILES_DIR`.
+
+Поэтому реестр и артефакты живут у тебя на сервере, а не обязаны качаться с GitHub.
+
+## Текущий публичный контур NV
+
+Сейчас live используются:
+- сайт: `https://sosiskibot.ru/nv/`
+- API: `https://sosiskibot.ru/nv/api`
+- install Linux: `https://sosiskibot.ru/install/nv.sh`
+- install Windows: `https://sosiskibot.ru/install/nv.ps1`
+
+## Итог
+
+Если коротко, для выкладки пакета нужен такой минимум:
+
+1. поднять `nvd`;
+2. задать `NVD_PUBLISH_TOKEN` на сервере;
+3. подготовить `nv.package.json`;
+4. авторизоваться через `nv login --token <key>` или `NV_PUBLISH_TOKEN`;
+5. сделать `nv publish`.
+
+Этого достаточно, чтобы пакет появился в реестре, начал резолвиться по `@latest/@beta/...` и ставился обычной командой `nv i <package>`.

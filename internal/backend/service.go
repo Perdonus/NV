@@ -3,6 +3,7 @@ package backend
 import (
 	"bytes"
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -81,7 +82,7 @@ func (s *Service) handleWhoami(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !s.authorized(r) {
-		writeError(w, http.StatusUnauthorized, errors.New("invalid publish token"))
+		writeError(w, http.StatusUnauthorized, s.publishAuthError())
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -366,7 +367,7 @@ func (s *Service) handlePublish(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !s.authorized(r) {
-		writeError(w, http.StatusUnauthorized, errors.New("invalid publish token"))
+		writeError(w, http.StatusUnauthorized, s.publishAuthError())
 		return
 	}
 	payload, cleanup, err := s.parsePublishRequest(r)
@@ -992,14 +993,21 @@ func absoluteDownloadURL(baseURL, raw string) string {
 
 func (s *Service) authorized(r *http.Request) bool {
 	if s.publishToken == "" {
-		return true
+		return false
 	}
 	authorization := strings.TrimSpace(r.Header.Get("Authorization"))
 	if !strings.HasPrefix(strings.ToLower(authorization), "bearer ") {
 		return false
 	}
 	token := strings.TrimSpace(authorization[len("Bearer "):])
-	return token == s.publishToken
+	return subtle.ConstantTimeCompare([]byte(token), []byte(s.publishToken)) == 1
+}
+
+func (s *Service) publishAuthError() error {
+	if strings.TrimSpace(s.publishToken) == "" {
+		return errors.New("publish token is not configured on the server")
+	}
+	return errors.New("invalid publish token")
 }
 
 func releaseForVariantAndVersion(releases []sqliteReleaseRow, variantID, version string) (sqliteReleaseRow, bool) {

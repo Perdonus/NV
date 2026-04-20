@@ -26,6 +26,13 @@ func resolveAuthToken() string {
 	return strings.TrimSpace(cfg.AuthToken)
 }
 
+func resolvePublishToken() string {
+	if token := strings.TrimSpace(getenvFirst("NV_PUBLISH_TOKEN", "NEURALV_PUBLISH_TOKEN")); token != "" {
+		return token
+	}
+	return resolveAuthToken()
+}
+
 func resolvedBaseURL(defaultURL string) string {
 	if override := strings.TrimSpace(getenvFirst("NV_BASE_URL", "NEURALV_BASE_URL")); override != "" {
 		return strings.TrimRight(override, "/")

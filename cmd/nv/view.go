@@ -15,7 +15,7 @@ func viewCommand(client *api.Client, args []string) error {
 		return err
 	}
 	if len(positional) < 1 {
-		return errors.New("не хватает имени пакета: view <package[@version]>")
+		return errors.New("не хватает имени пакета: view <package[@version|tag]>")
 	}
 
 	name, version, err := parsePackageSpec(positional[0])
@@ -78,14 +78,14 @@ func parseViewArgs(args []string) (bool, string, []string, error) {
 			jsonOutput = true
 		case argument == "--os":
 			if index+1 >= len(args) {
-				return false, "", nil, fmt.Errorf("usage: nv view <package[@version]> [field[.subfield]...] [--json] [--os <linux|windows|all>]")
+				return false, "", nil, fmt.Errorf("usage: nv view <package[@version|tag]> [field[.subfield]...] [--json] [--os <linux|windows|all>]")
 			}
 			targetOS = strings.TrimSpace(args[index+1])
 			index++
 		case strings.HasPrefix(argument, "--os="):
 			targetOS = strings.TrimSpace(strings.TrimPrefix(argument, "--os="))
 		case strings.HasPrefix(argument, "--"):
-			return false, "", nil, fmt.Errorf("usage: nv view <package[@version]> [field[.subfield]...] [--json] [--os <linux|windows|all>]")
+			return false, "", nil, fmt.Errorf("usage: nv view <package[@version|tag]> [field[.subfield]...] [--json] [--os <linux|windows|all>]")
 		default:
 			positional = append(positional, argument)
 		}

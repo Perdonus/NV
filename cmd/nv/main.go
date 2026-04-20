@@ -17,6 +17,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"syscall"
@@ -39,6 +40,7 @@ const (
 var defaultWindowsProtocolSchemes = []string{"shieldsecurity", "neuralv"}
 
 var nvVersion = "dev"
+var packageTagPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
 
 type installOptions struct {
 	InstallRootOverride string
@@ -118,14 +120,14 @@ func handle(args []string, client *api.Client) error {
 
 func printHelp() {
 	fmt.Println(`Команды:
-  install | i <package[@version]> [--dir <path>]
+  install | i <package[@version|tag]> [--dir <path>]
   uninstall | remove | rm <package>
   update [package ...]
   outdated [package ...] [--json]
   list | ls
   search | find [query]
   info <package>
-  view | show | v <package[@version]> [field] [--json] [--os <linux|windows|all>]
+  view | show | v <package[@version|tag]> [field] [--json] [--os <linux|windows|all>]
   pack [--manifest <file>] [--out <file>]
   publish [--manifest <file>] [--tag <tag>] [--dry-run]
   login --token <token> [--server <url>]
@@ -637,11 +639,27 @@ func parsePackageSpec(spec string) (string, string, error) {
 	if version != "latest" {
 		normalizedVersion, err := semver.Normalize(version)
 		if err != nil {
-			return "", "", fmt.Errorf("некорректная версия %q: используй latest или semver 2.0.0", version)
+			normalizedTag := normalizePackageTag(version)
+			if normalizedTag == "" {
+				return "", "", fmt.Errorf("некорректная версия или tag %q: используй semver или tag вроде latest/beta/canary", version)
+			}
+			version = normalizedTag
+		} else {
+			version = normalizedVersion
 		}
-		version = normalizedVersion
 	}
 	return name, version, nil
+}
+
+func normalizePackageTag(raw string) string {
+	tag := strings.ToLower(strings.TrimSpace(raw))
+	if tag == "" {
+		return ""
+	}
+	if !packageTagPattern.MatchString(tag) {
+		return ""
+	}
+	return tag
 }
 
 func normalizePackageName(name string) string {

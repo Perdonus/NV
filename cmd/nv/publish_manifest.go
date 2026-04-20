@@ -139,10 +139,10 @@ func (loaded *loadedPackageManifest) normalizeAndValidate() error {
 
 	distTags := make([]string, 0, len(loaded.Manifest.DistTags))
 	seenTags := map[string]struct{}{}
-	for _, tag := range loaded.Manifest.DistTags {
-		tag = strings.TrimSpace(tag)
+	for _, rawTag := range loaded.Manifest.DistTags {
+		tag := normalizePackageTag(rawTag)
 		if tag == "" {
-			continue
+			return fmt.Errorf("dist_tags содержит некорректный tag %q", strings.TrimSpace(rawTag))
 		}
 		if _, exists := seenTags[tag]; exists {
 			continue
