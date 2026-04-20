@@ -3,7 +3,9 @@
     {
       "name": "nv",
       "version": "1.4.5",
-      "aliases": [],
+      "aliases": [
+        "@lvls/nv"
+      ],
       "title": "NV",
       "description": "Пакетный менеджер NV.",
       "homepage": "https://sosiskibot.ru/nv/",
