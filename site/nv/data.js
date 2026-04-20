@@ -19,6 +19,6 @@ export const fallbackProjects = [
   {
     name: "nv",
     title: "NV",
-    latestVersion: "1.4.3",
+    latestVersion: "1.4.4",
   },
 ];

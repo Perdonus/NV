@@ -1,6 +1,7 @@
 package backend
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
@@ -131,6 +132,9 @@ func (s *Store) queryJSON(ctx context.Context, sql string, dest any) error {
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("sqlite3 query failed: %w: %s", err, strings.TrimSpace(string(out)))
+	}
+	if len(bytes.TrimSpace(out)) == 0 {
+		out = []byte("[]")
 	}
 	return json.Unmarshal(out, dest)
 }
