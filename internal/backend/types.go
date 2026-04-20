@@ -31,6 +31,19 @@ type SeedPackage struct {
 	Homepage    string        `json:"homepage"`
 	DistTags    []string      `json:"dist_tags,omitempty"`
 	Variants    []SeedVariant `json:"variants"`
+	Releases    []SeedRelease `json:"releases,omitempty"`
+}
+
+type SeedRelease struct {
+	VariantID    string `json:"variant_id"`
+	Version      string `json:"version"`
+	FileName     string `json:"file_name,omitempty"`
+	RelativePath string `json:"relative_path,omitempty"`
+	DownloadURL  string `json:"download_url,omitempty"`
+	ContentType  string `json:"content_type,omitempty"`
+	SHA256       string `json:"sha256,omitempty"`
+	Size         int64  `json:"size,omitempty"`
+	PublishedAt  string `json:"published_at,omitempty"`
 }
 
 type SeedVariant struct {

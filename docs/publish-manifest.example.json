@@ -1,6 +1,6 @@
 {
   "name": "nv",
-  "version": "1.4.5",
+  "version": "1.4.6",
   "title": "NV",
   "description": "Пакетный менеджер NV.",
   "homepage": "https://sosiskibot.ru/nv/",
@@ -8,7 +8,8 @@
     "nv-cli"
   ],
   "dist_tags": [
-    "latest"
+    "latest",
+    "beta"
   ],
   "readme": "README.md",
   "variants": [

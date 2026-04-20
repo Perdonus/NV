@@ -129,7 +129,7 @@ func printHelp() {
   info <package>
   view | show | v <package[@version|tag]> [field] [--json] [--os <linux|windows|all>]
   pack [--manifest <file>] [--out <file>]
-  publish [--manifest <file>] [--tag <tag>] [--dry-run]
+  publish [--manifest <file>] [--tag <tag>] [--tags <a,b,c>] [--dry-run]
   login --token <token> [--server <url>]
   logout
   whoami

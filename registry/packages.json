@@ -2,7 +2,7 @@
   "packages": [
     {
       "name": "nv",
-      "version": "1.4.5",
+      "version": "1.4.6",
       "aliases": [
         "@lvls/nv"
       ],
@@ -14,11 +14,11 @@
           "id": "nv-linux",
           "label": "Linux",
           "os": "linux",
-          "version": "1.4.5",
+          "version": "1.4.6",
           "default": true,
           "is_default": true,
-          "file_name": "nv-linux-1.4.5.tar.gz",
-          "download_url": "/files/nv-linux-1.4.5.tar.gz",
+          "file_name": "nv-linux-1.4.6.tar.gz",
+          "download_url": "/files/nv-linux-1.4.6.tar.gz",
           "sha256": "",
           "install_strategy": "unix-self-binary",
           "install_root": "$HOME/.local/bin",
@@ -34,11 +34,11 @@
           "id": "nv-windows",
           "label": "Windows",
           "os": "windows",
-          "version": "1.4.5",
+          "version": "1.4.6",
           "default": true,
           "is_default": true,
-          "file_name": "nv-1.4.5.exe",
-          "download_url": "/files/nv-1.4.5.exe",
+          "file_name": "nv-1.4.6.exe",
+          "download_url": "/files/nv-1.4.6.exe",
           "sha256": "",
           "install_strategy": "windows-self-binary",
           "install_root": "%LOCALAPPDATA%/NV",
@@ -49,6 +49,95 @@
           "metadata": {
             "bootstrapPlatform": "nv-windows"
           }
+        }
+      ],
+      "dist_tags": [
+        "latest"
+      ],
+      "releases": [
+        {
+          "variant_id": "nv-linux",
+          "version": "1.4.1",
+          "file_name": "nv-linux-1.4.1.tar.gz",
+          "relative_path": "nv-linux-1.4.1.tar.gz",
+          "content_type": "application/octet-stream"
+        },
+        {
+          "variant_id": "nv-windows",
+          "version": "1.4.1",
+          "file_name": "nv-1.4.1.exe",
+          "relative_path": "nv-1.4.1.exe",
+          "content_type": "application/octet-stream"
+        },
+        {
+          "variant_id": "nv-linux",
+          "version": "1.4.2",
+          "file_name": "nv-linux-1.4.2.tar.gz",
+          "relative_path": "nv-linux-1.4.2.tar.gz",
+          "content_type": "application/octet-stream"
+        },
+        {
+          "variant_id": "nv-windows",
+          "version": "1.4.2",
+          "file_name": "nv-1.4.2.exe",
+          "relative_path": "nv-1.4.2.exe",
+          "content_type": "application/octet-stream"
+        },
+        {
+          "variant_id": "nv-linux",
+          "version": "1.4.3",
+          "file_name": "nv-linux-1.4.3.tar.gz",
+          "relative_path": "nv-linux-1.4.3.tar.gz",
+          "content_type": "application/octet-stream"
+        },
+        {
+          "variant_id": "nv-windows",
+          "version": "1.4.3",
+          "file_name": "nv-1.4.3.exe",
+          "relative_path": "nv-1.4.3.exe",
+          "content_type": "application/octet-stream"
+        },
+        {
+          "variant_id": "nv-linux",
+          "version": "1.4.4",
+          "file_name": "nv-linux-1.4.4.tar.gz",
+          "relative_path": "nv-linux-1.4.4.tar.gz",
+          "content_type": "application/octet-stream"
+        },
+        {
+          "variant_id": "nv-windows",
+          "version": "1.4.4",
+          "file_name": "nv-1.4.4.exe",
+          "relative_path": "nv-1.4.4.exe",
+          "content_type": "application/octet-stream"
+        },
+        {
+          "variant_id": "nv-linux",
+          "version": "1.4.5",
+          "file_name": "nv-linux-1.4.5.tar.gz",
+          "relative_path": "nv-linux-1.4.5.tar.gz",
+          "content_type": "application/octet-stream"
+        },
+        {
+          "variant_id": "nv-windows",
+          "version": "1.4.5",
+          "file_name": "nv-1.4.5.exe",
+          "relative_path": "nv-1.4.5.exe",
+          "content_type": "application/octet-stream"
+        },
+        {
+          "variant_id": "nv-linux",
+          "version": "1.4.6",
+          "file_name": "nv-linux-1.4.6.tar.gz",
+          "relative_path": "nv-linux-1.4.6.tar.gz",
+          "content_type": "application/octet-stream"
+        },
+        {
+          "variant_id": "nv-windows",
+          "version": "1.4.6",
+          "file_name": "nv-1.4.6.exe",
+          "relative_path": "nv-1.4.6.exe",
+          "content_type": "application/octet-stream"
         }
       ]
     }

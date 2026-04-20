@@ -11,10 +11,10 @@ var/nvd/
     files/
       nv/
         nv-linux/
-          1.4.5/
+          1.4.6/
             nv-linux.tar.gz
         nv-windows/
-          1.4.5/
+          1.4.6/
             nv.exe
       project/
         linux/

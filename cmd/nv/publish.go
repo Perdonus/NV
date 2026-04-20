@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/Perdonus/NV/internal/api"
@@ -72,7 +73,7 @@ func publishCommand(client *api.Client, args []string) error {
 	var manifestPath string
 	var server string
 	var token string
-	var tag string
+	tags := make([]string, 0, 4)
 	var notes string
 	dryRun := false
 	positional := make([]string, 0, len(args))
@@ -83,7 +84,7 @@ func publishCommand(client *api.Client, args []string) error {
 			continue
 		case argument == "--manifest":
 			if index+1 >= len(args) {
-				return fmt.Errorf("usage: nv publish [--manifest <file>] [--tag <tag>] [--dry-run] [--token <token>] [--server <url>]")
+				return fmt.Errorf("usage: nv publish [--manifest <file>] [--tag <tag>] [--tags <a,b,c>] [--dry-run] [--token <token>] [--server <url>]")
 			}
 			manifestPath = strings.TrimSpace(args[index+1])
 			index++
@@ -91,7 +92,7 @@ func publishCommand(client *api.Client, args []string) error {
 			manifestPath = strings.TrimSpace(strings.TrimPrefix(argument, "--manifest="))
 		case argument == "--server":
 			if index+1 >= len(args) {
-				return fmt.Errorf("usage: nv publish [--manifest <file>] [--tag <tag>] [--dry-run] [--token <token>] [--server <url>]")
+				return fmt.Errorf("usage: nv publish [--manifest <file>] [--tag <tag>] [--tags <a,b,c>] [--dry-run] [--token <token>] [--server <url>]")
 			}
 			server = strings.TrimSpace(args[index+1])
 			index++
@@ -99,7 +100,7 @@ func publishCommand(client *api.Client, args []string) error {
 			server = strings.TrimSpace(strings.TrimPrefix(argument, "--server="))
 		case argument == "--token":
 			if index+1 >= len(args) {
-				return fmt.Errorf("usage: nv publish [--manifest <file>] [--tag <tag>] [--dry-run] [--token <token>] [--server <url>]")
+				return fmt.Errorf("usage: nv publish [--manifest <file>] [--tag <tag>] [--tags <a,b,c>] [--dry-run] [--token <token>] [--server <url>]")
 			}
 			token = strings.TrimSpace(args[index+1])
 			index++
@@ -107,15 +108,23 @@ func publishCommand(client *api.Client, args []string) error {
 			token = strings.TrimSpace(strings.TrimPrefix(argument, "--token="))
 		case argument == "--tag":
 			if index+1 >= len(args) {
-				return fmt.Errorf("usage: nv publish [--manifest <file>] [--tag <tag>] [--dry-run] [--token <token>] [--server <url>]")
+				return fmt.Errorf("usage: nv publish [--manifest <file>] [--tag <tag>] [--tags <a,b,c>] [--dry-run] [--token <token>] [--server <url>]")
 			}
-			tag = strings.TrimSpace(args[index+1])
+			tags = append(tags, strings.TrimSpace(args[index+1]))
 			index++
 		case strings.HasPrefix(argument, "--tag="):
-			tag = strings.TrimSpace(strings.TrimPrefix(argument, "--tag="))
+			tags = append(tags, strings.TrimSpace(strings.TrimPrefix(argument, "--tag=")))
+		case argument == "--tags":
+			if index+1 >= len(args) {
+				return fmt.Errorf("usage: nv publish [--manifest <file>] [--tag <tag>] [--tags <a,b,c>] [--dry-run] [--token <token>] [--server <url>]")
+			}
+			tags = append(tags, splitPublishTags(args[index+1])...)
+			index++
+		case strings.HasPrefix(argument, "--tags="):
+			tags = append(tags, splitPublishTags(strings.TrimPrefix(argument, "--tags="))...)
 		case argument == "--notes":
 			if index+1 >= len(args) {
-				return fmt.Errorf("usage: nv publish [--manifest <file>] [--tag <tag>] [--dry-run] [--token <token>] [--server <url>]")
+				return fmt.Errorf("usage: nv publish [--manifest <file>] [--tag <tag>] [--tags <a,b,c>] [--dry-run] [--token <token>] [--server <url>]")
 			}
 			notes = strings.TrimSpace(args[index+1])
 			index++
@@ -124,7 +133,7 @@ func publishCommand(client *api.Client, args []string) error {
 		case argument == "--dry-run":
 			dryRun = true
 		case strings.HasPrefix(argument, "--"):
-			return fmt.Errorf("usage: nv publish [--manifest <file>] [--tag <tag>] [--dry-run] [--token <token>] [--server <url>]")
+			return fmt.Errorf("usage: nv publish [--manifest <file>] [--tag <tag>] [--tags <a,b,c>] [--dry-run] [--token <token>] [--server <url>]")
 		default:
 			positional = append(positional, argument)
 		}
@@ -138,12 +147,14 @@ func publishCommand(client *api.Client, args []string) error {
 	if err != nil {
 		return err
 	}
-	if tagValue := normalizePackageTag(tag); tagValue != "" {
+	for _, rawTag := range tags {
+		tagValue := normalizePackageTag(rawTag)
+		if tagValue == "" {
+			return fmt.Errorf("некорректный tag %q: используй буквы, цифры, '.', '-' или '_'", strings.TrimSpace(rawTag))
+		}
 		loaded.Manifest.DistTags = append(loaded.Manifest.DistTags, tagValue)
-		loaded.Manifest.DistTags = dedupeStrings(loaded.Manifest.DistTags)
-	} else if strings.TrimSpace(tag) != "" {
-		return fmt.Errorf("некорректный tag %q: используй буквы, цифры, '.', '-' или '_'", strings.TrimSpace(tag))
 	}
+	loaded.Manifest.DistTags = dedupeStrings(loaded.Manifest.DistTags)
 	if notesPath := strings.TrimSpace(notes); notesPath != "" {
 		resolved := filepath.Join(loaded.Dir, filepath.FromSlash(notesPath))
 		if _, err := os.Stat(resolved); err != nil {
@@ -187,7 +198,13 @@ func publishCommand(client *api.Client, args []string) error {
 	fmt.Printf("%s: %s %s\n", status, response.Package.Name, response.Package.Version.Version)
 	if len(response.Package.DistTags) > 0 {
 		fmt.Println("Dist-tags:")
-		for tagName, version := range response.Package.DistTags {
+		tagNames := make([]string, 0, len(response.Package.DistTags))
+		for tagName := range response.Package.DistTags {
+			tagNames = append(tagNames, tagName)
+		}
+		sort.Strings(tagNames)
+		for _, tagName := range tagNames {
+			version := response.Package.DistTags[tagName]
 			fmt.Printf("  %s: %s\n", tagName, version)
 		}
 	}
@@ -198,6 +215,19 @@ func publishCommand(client *api.Client, args []string) error {
 		fmt.Printf("  %s -> %s\n", variant.ID, variant.DownloadURL)
 	}
 	return nil
+}
+
+func splitPublishTags(raw string) []string {
+	parts := strings.Split(raw, ",")
+	result := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		result = append(result, part)
+	}
+	return result
 }
 
 func writePackArchive(target string, loaded *loadedPackageManifest) error {

@@ -6,7 +6,7 @@
 
 Главная идея:
 - пакеты ставятся командами вида `nv i <package>`;
-- пакет можно запросить по фиксированной версии: `nv i <package>@1.4.5`;
+- пакет можно запросить по фиксированной версии: `nv i <package>@1.4.6`;
 - пакет можно запросить по ветке обновлений: `nv i <package>@latest`, `nv i <package>@beta`, `nv i <package>@canary`;
 - сами ветки обновлений задаёт автор пакета через `dist_tags`.
 
@@ -38,7 +38,7 @@ nv search | find [query]
 nv info <package>
 nv view | show | v <package[@version|tag]> [field] [--json] [--os <linux|windows|all>]
 nv pack [--manifest <file>] [--out <file>]
-nv publish [--manifest <file>] [--tag <tag>] [--dry-run] [--token <key>] [--server <url>]
+nv publish [--manifest <file>] [--tag <tag>] [--tags <a,b,c>] [--dry-run] [--token <key>] [--server <url>]
 nv login --token <key> [--server <url>]
 nv logout
 nv whoami
@@ -53,13 +53,13 @@ NV понимает три формы:
 
 ```sh
 nv i nv
-nv i nv@1.4.5
+nv i nv@1.4.6
 nv i nv@beta
 ```
 
 Что это значит:
 - `nv i nv` — поставить то, что сейчас висит на `latest`;
-- `nv i nv@1.4.5` — поставить конкретную semver-версию;
+- `nv i nv@1.4.6` — поставить конкретную semver-версию;
 - `nv i nv@beta` — поставить версию, на которую сейчас указывает `beta`.
 
 Теги не зашиты в клиент. Автор пакета может публиковать любые нормальные `dist_tags`:
@@ -77,7 +77,7 @@ nv i nv@latest
 nv i nv@beta
 nv view nv dist_tags
 nv view nv@beta version
-nv view nv@1.4.5 versions --json
+nv view nv@1.4.6 versions --json
 ```
 
 ## Что уже умеет backend
@@ -86,6 +86,7 @@ nv view nv@1.4.5 versions --json
 - хранение `dist_tags` по каждому пакету;
 - выбор версии через `resolve`;
 - `view` с `dist_tags`, списком версий и выбранной версией;
+- сохранение старых версий в каталоге, чтобы можно было явно запросить `nv i <package>@1.4.4`;
 - bootstrap manifest;
 - локальное хранение артефактов на сервере, без зависимости от GitHub как source of truth.
 
@@ -104,6 +105,11 @@ nv view nv@1.4.5 versions --json
 - или без сохранения: `nv publish --token <key>`;
 - или через env: `NV_PUBLISH_TOKEN=<key>`.
 
+Теги публикации:
+- `--tag beta` — добавить один tag;
+- `--tag canary --tag latest` — несколько повторяемых тегов;
+- `--tags latest,beta,stable` — список тегов одной строкой.
+
 Сейчас publish без ключа не должен использоваться. Это не публичная anonymous-операция.
 
 ## Полный поток выкладки пакета
@@ -115,7 +121,7 @@ nv view nv@1.4.5 versions --json
 Скачай готовый backend-архив из release:
 
 ```sh
-curl -fsSL https://github.com/Perdonus/NV/releases/download/v1.4.5/nvd-linux.tar.gz -o /root/nvd-linux.tar.gz
+curl -fsSL https://github.com/Perdonus/NV/releases/download/v1.4.6/nvd-linux.tar.gz -o /root/nvd-linux.tar.gz
 mkdir -p /opt/nvd/current
 tar -xzf /root/nvd-linux.tar.gz -C /opt/nvd/current
 cp /opt/nvd/current/install/nvd.service /etc/systemd/system/nvd.service

@@ -271,6 +271,77 @@ ON CONFLICT(package_name, variant_id) DO UPDATE SET
 			row.AutoUpdate,
 		))
 	}
+
+	seedVersions := map[string]struct{}{}
+	appendSeedVersion := func(value string) {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			return
+		}
+		normalized, err := semver.Normalize(value)
+		if err != nil {
+			return
+		}
+		if _, exists := seedVersions[normalized]; exists {
+			return
+		}
+		seedVersions[normalized] = struct{}{}
+		script.WriteString(fmt.Sprintf(
+			`INSERT INTO package_versions (package_name, version, readme, notes, created_at, updated_at)
+VALUES (%s, %s, '', '', %s, %s)
+ON CONFLICT(package_name, version) DO NOTHING;
+`,
+			sqlQuote(name),
+			sqlQuote(normalized),
+			sqlQuote(now),
+			sqlQuote(now),
+		))
+	}
+
+	appendSeedVersion(initialVersion)
+	for _, release := range normalizeSeedReleases(pkg.Releases, s.artifactsDir, now) {
+		appendSeedVersion(release.Version)
+		script.WriteString(fmt.Sprintf(
+			`INSERT INTO releases (
+	package_name, variant_id, version, file_name, relative_path, content_type, sha256, size, published_at
+) VALUES (%s, %s, %s, %s, %s, %s, %s, %d, %s)
+ON CONFLICT(package_name, variant_id, version) DO UPDATE SET
+	file_name=excluded.file_name,
+	relative_path=excluded.relative_path,
+	content_type=excluded.content_type,
+	sha256=excluded.sha256,
+	size=excluded.size,
+	published_at=excluded.published_at;
+`,
+			sqlQuote(name),
+			sqlQuote(release.VariantID),
+			sqlQuote(release.Version),
+			sqlQuote(release.FileName),
+			sqlQuote(release.RelativePath),
+			sqlQuote(release.ContentType),
+			sqlQuote(release.SHA256),
+			release.Size,
+			sqlQuote(release.PublishedAt),
+		))
+	}
+
+	for _, tag := range normalizeDistTags(pkg.DistTags) {
+		if strings.TrimSpace(initialVersion) == "" {
+			continue
+		}
+		script.WriteString(fmt.Sprintf(
+			`INSERT INTO package_dist_tags (package_name, tag, version, updated_at)
+VALUES (%s, %s, %s, %s)
+ON CONFLICT(package_name, tag) DO UPDATE SET
+	version=excluded.version,
+	updated_at=excluded.updated_at;
+`,
+			sqlQuote(name),
+			sqlQuote(tag),
+			sqlQuote(initialVersion),
+			sqlQuote(now),
+		))
+	}
 	return script.String()
 }
 
@@ -326,6 +397,114 @@ func seedVariantToRow(variant SeedVariant) seedVariantRow {
 		UpdatePolicy:      strings.TrimSpace(variant.UpdatePolicy),
 		AutoUpdate:        boolToInt(variant.AutoUpdate),
 	}
+}
+
+type seedReleaseRow struct {
+	VariantID    string
+	Version      string
+	FileName     string
+	RelativePath string
+	ContentType  string
+	SHA256       string
+	Size         int64
+	PublishedAt  string
+}
+
+func normalizeSeedReleases(releases []SeedRelease, artifactsDir, fallbackPublishedAt string) []seedReleaseRow {
+	seen := map[string]struct{}{}
+	result := make([]seedReleaseRow, 0, len(releases))
+	for _, release := range releases {
+		row, ok := normalizeSeedRelease(release, artifactsDir, fallbackPublishedAt)
+		if !ok {
+			continue
+		}
+		key := row.VariantID + "\x00" + row.Version
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		result = append(result, row)
+	}
+	sort.SliceStable(result, func(i, j int) bool {
+		if !strings.EqualFold(result[i].VariantID, result[j].VariantID) {
+			return result[i].VariantID < result[j].VariantID
+		}
+		return compareVersionStrings(result[i].Version, result[j].Version) > 0
+	})
+	return result
+}
+
+func normalizeSeedRelease(release SeedRelease, artifactsDir, fallbackPublishedAt string) (seedReleaseRow, bool) {
+	variantID := strings.TrimSpace(release.VariantID)
+	if variantID == "" {
+		return seedReleaseRow{}, false
+	}
+	version, err := semver.Normalize(strings.TrimSpace(release.Version))
+	if err != nil {
+		return seedReleaseRow{}, false
+	}
+
+	relativePath := strings.TrimSpace(release.RelativePath)
+	if relativePath == "" {
+		relativePath = releaseRelativePathFromURL(strings.TrimSpace(release.DownloadURL))
+	}
+	if relativePath == "" {
+		relativePath = strings.TrimSpace(release.FileName)
+	}
+	relativePath = strings.TrimPrefix(path.Clean("/"+strings.ReplaceAll(relativePath, "\\", "/")), "/")
+	if relativePath == "" || relativePath == "." {
+		return seedReleaseRow{}, false
+	}
+
+	fileName := strings.TrimSpace(release.FileName)
+	if fileName == "" {
+		fileName = path.Base(relativePath)
+	}
+	contentType := strings.TrimSpace(release.ContentType)
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	size := release.Size
+	if size <= 0 {
+		if info, err := os.Stat(filepath.Join(artifactsDir, filepath.FromSlash(relativePath))); err == nil {
+			size = info.Size()
+		}
+	}
+	publishedAt := strings.TrimSpace(release.PublishedAt)
+	if publishedAt == "" {
+		publishedAt = fallbackPublishedAt
+	}
+
+	return seedReleaseRow{
+		VariantID:    variantID,
+		Version:      version,
+		FileName:     fileName,
+		RelativePath: relativePath,
+		ContentType:  contentType,
+		SHA256:       strings.TrimSpace(release.SHA256),
+		Size:         size,
+		PublishedAt:  publishedAt,
+	}, true
+}
+
+func releaseRelativePathFromURL(raw string) string {
+	if raw == "" {
+		return ""
+	}
+	if parsed, err := url.Parse(raw); err == nil && parsed.Path != "" {
+		raw = parsed.Path
+	}
+	normalized := strings.TrimPrefix(path.Clean("/"+strings.ReplaceAll(raw, "\\", "/")), "/")
+	for _, prefix := range []string{"nv/api/files/", "api/files/", "files/"} {
+		if strings.HasPrefix(normalized, prefix) {
+			normalized = strings.TrimPrefix(normalized, prefix)
+			break
+		}
+	}
+	if normalized == "." {
+		return ""
+	}
+	return normalized
 }
 
 func (s *Store) LoadCatalog(ctx context.Context, baseURL string) ([]packageBundle, error) {
