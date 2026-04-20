@@ -44,6 +44,9 @@ func OpenStore(cfg Config) (*Store, error) {
 		artifactsDir = filepath.Join(layoutDir, "files")
 	}
 
+	if err := os.MkdirAll(layoutDir, 0o755); err != nil {
+		return nil, err
+	}
 	if err := os.MkdirAll(artifactsDir, 0o755); err != nil {
 		return nil, err
 	}
@@ -102,8 +105,14 @@ func (s *Store) execScript(ctx context.Context, sql string) error {
 	if strings.TrimSpace(sql) == "" {
 		return nil
 	}
-	cmd := exec.CommandContext(ctx, "sqlite3", s.dbPath)
-	cmd.Stdin = strings.NewReader("PRAGMA foreign_keys=ON;\nPRAGMA busy_timeout=5000;\n" + sql + "\n")
+	cmd := exec.CommandContext(
+		ctx,
+		"sqlite3",
+		"-cmd", "PRAGMA foreign_keys=ON",
+		"-cmd", "PRAGMA busy_timeout=5000",
+		s.dbPath,
+	)
+	cmd.Stdin = strings.NewReader(sql + "\n")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("sqlite3 exec failed: %w: %s", err, strings.TrimSpace(string(out)))
@@ -112,8 +121,15 @@ func (s *Store) execScript(ctx context.Context, sql string) error {
 }
 
 func (s *Store) queryJSON(ctx context.Context, sql string, dest any) error {
-	cmd := exec.CommandContext(ctx, "sqlite3", "-json", s.dbPath)
-	cmd.Stdin = strings.NewReader("PRAGMA foreign_keys=ON;\nPRAGMA busy_timeout=5000;\n" + sql + "\n")
+	cmd := exec.CommandContext(
+		ctx,
+		"sqlite3",
+		"-json",
+		"-cmd", "PRAGMA foreign_keys=ON",
+		"-cmd", "PRAGMA busy_timeout=5000",
+		s.dbPath,
+	)
+	cmd.Stdin = strings.NewReader(sql + "\n")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("sqlite3 query failed: %w: %s", err, strings.TrimSpace(string(out)))
