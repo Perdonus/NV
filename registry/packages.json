@@ -2,7 +2,7 @@
   "packages": [
     {
       "name": "nv",
-      "version": "1.4.7",
+      "version": "1.4.8",
       "aliases": [
         "@lvls/nv"
       ],
@@ -14,11 +14,11 @@
           "id": "nv-linux",
           "label": "Linux",
           "os": "linux",
-          "version": "1.4.7",
+          "version": "1.4.8",
           "default": true,
           "is_default": true,
-          "file_name": "nv-linux-1.4.7.tar.gz",
-          "download_url": "/files/nv-linux-1.4.7.tar.gz",
+          "file_name": "nv-linux-1.4.8.tar.gz",
+          "download_url": "/files/nv-linux-1.4.8.tar.gz",
           "sha256": "",
           "install_strategy": "unix-self-binary",
           "install_root": "$HOME/.local/bin",
@@ -34,11 +34,11 @@
           "id": "nv-windows",
           "label": "Windows",
           "os": "windows",
-          "version": "1.4.7",
+          "version": "1.4.8",
           "default": true,
           "is_default": true,
-          "file_name": "nv-1.4.7.exe",
-          "download_url": "/files/nv-1.4.7.exe",
+          "file_name": "nv-1.4.8.exe",
+          "download_url": "/files/nv-1.4.8.exe",
           "sha256": "",
           "install_strategy": "windows-self-binary",
           "install_root": "%LOCALAPPDATA%/NV",
@@ -137,6 +137,20 @@
           "version": "1.4.6",
           "file_name": "nv-1.4.6.exe",
           "relative_path": "nv-1.4.6.exe",
+          "content_type": "application/octet-stream"
+        },
+        {
+          "variant_id": "nv-linux",
+          "version": "1.4.8",
+          "file_name": "nv-linux-1.4.8.tar.gz",
+          "relative_path": "nv-linux-1.4.8.tar.gz",
+          "content_type": "application/octet-stream"
+        },
+        {
+          "variant_id": "nv-windows",
+          "version": "1.4.8",
+          "file_name": "nv-1.4.8.exe",
+          "relative_path": "nv-1.4.8.exe",
           "content_type": "application/octet-stream"
         },
         {

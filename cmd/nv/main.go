@@ -866,19 +866,7 @@ func ensureLinuxPortableWrapper(pkg *api.ResolvedPackage, installRoot string) er
 		return fmt.Errorf("launcher не найден после установки: %s", launcher)
 	}
 
-	wrapperName := strings.TrimSpace(pkg.Variant.WrapperName)
-	if wrapperName == "" {
-		wrapperName = strings.TrimSpace(pkg.Variant.BinaryName)
-	}
-	if wrapperName == "" {
-		if inferred := inferredBinaryName(pkg.Variant.DownloadURL); inferred != "" {
-			wrapperName = inferred
-		}
-	}
-	if wrapperName == "" {
-		wrapperName = pkg.Name
-	}
-	wrapperName = filepath.Base(filepath.FromSlash(wrapperName))
+	wrapperName := portableWrapperName(pkg)
 
 	wrapperDir, err := resolveInstallRoot("$HOME/.local/bin", filepath.Join("$HOME", ".local", "bin"))
 	if err != nil {
@@ -895,6 +883,22 @@ func ensureLinuxPortableWrapper(pkg *api.ResolvedPackage, installRoot string) er
 	}
 	printPathHint(wrapperDir)
 	return nil
+}
+
+func portableWrapperName(pkg *api.ResolvedPackage) string {
+	wrapperName := strings.TrimSpace(pkg.Variant.WrapperName)
+	if wrapperName == "" {
+		wrapperName = strings.TrimSpace(pkg.Variant.BinaryName)
+	}
+	if wrapperName == "" {
+		if inferred := inferredBinaryName(pkg.Variant.DownloadURL); inferred != "" {
+			wrapperName = inferred
+		}
+	}
+	if wrapperName == "" {
+		wrapperName = pkg.Name
+	}
+	return filepath.Base(filepath.FromSlash(wrapperName))
 }
 
 func resolvedWindowsBinDir(pkg *api.ResolvedPackage, installRoot string) string {
@@ -2102,7 +2106,19 @@ func shortSystemReason(err error) string {
 }
 
 func uninstallResolvedPackage(pkg *api.ResolvedPackage) error {
-	switch pkg.Variant.UninstallStrategy {
+	strategy := strings.TrimSpace(pkg.Variant.UninstallStrategy)
+	if strategy == "" {
+		switch pkg.Variant.InstallStrategy {
+		case "linux-portable-tar":
+			strategy = "linux-portable-tar-remove"
+		case "windows-portable-zip":
+			strategy = "windows-remove-dir"
+		case "windows-self-binary":
+			strategy = "windows-remove-dir"
+		}
+	}
+
+	switch strategy {
 	case "windows-remove-dir":
 		root, err := resolveInstallRoot(pkg.Variant.InstallRoot, filepath.Join(`%LOCALAPPDATA%`, pkg.Name))
 		if err != nil {
@@ -2122,6 +2138,23 @@ func uninstallResolvedPackage(pkg *api.ResolvedPackage) error {
 			return err
 		}
 		if err := os.RemoveAll(root); err != nil {
+			return err
+		}
+		fmt.Printf("Пакет %s удален из %s\n", pkg.Name, root)
+		return nil
+	case "linux-portable-tar-remove":
+		root, err := resolveInstallRoot(pkg.Variant.InstallRoot, filepath.Join("$HOME", ".local", "opt", pkg.Name))
+		if err != nil {
+			return err
+		}
+		if err := os.RemoveAll(root); err != nil {
+			return err
+		}
+		wrapperDir, err := resolveInstallRoot("$HOME/.local/bin", filepath.Join("$HOME", ".local", "bin"))
+		if err != nil {
+			return err
+		}
+		if err := os.Remove(filepath.Join(wrapperDir, portableWrapperName(pkg))); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return err
 		}
 		fmt.Printf("Пакет %s удален из %s\n", pkg.Name, root)
