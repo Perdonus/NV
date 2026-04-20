@@ -6,7 +6,7 @@
 
 Главная идея:
 - пакеты ставятся командами вида `nv i <package>`;
-- пакет можно запросить по фиксированной версии: `nv i <package>@1.4.6`;
+- пакет можно запросить по фиксированной версии: `nv i <package>@1.4.7`;
 - пакет можно запросить по ветке обновлений: `nv i <package>@latest`, `nv i <package>@beta`, `nv i <package>@canary`;
 - сами ветки обновлений задаёт автор пакета через `dist_tags`.
 
@@ -53,13 +53,13 @@ NV понимает три формы:
 
 ```sh
 nv i nv
-nv i nv@1.4.6
+nv i nv@1.4.7
 nv i nv@beta
 ```
 
 Что это значит:
 - `nv i nv` — поставить то, что сейчас висит на `latest`;
-- `nv i nv@1.4.6` — поставить конкретную semver-версию;
+- `nv i nv@1.4.7` — поставить конкретную semver-версию;
 - `nv i nv@beta` — поставить версию, на которую сейчас указывает `beta`.
 
 Теги не зашиты в клиент. Автор пакета может публиковать любые нормальные `dist_tags`:
@@ -77,7 +77,7 @@ nv i nv@latest
 nv i nv@beta
 nv view nv dist_tags
 nv view nv@beta version
-nv view nv@1.4.6 versions --json
+nv view nv@1.4.7 versions --json
 ```
 
 ## Что уже умеет backend
@@ -121,7 +121,7 @@ nv view nv@1.4.6 versions --json
 Скачай готовый backend-архив из release:
 
 ```sh
-curl -fsSL https://github.com/Perdonus/NV/releases/download/v1.4.6/nvd-linux.tar.gz -o /root/nvd-linux.tar.gz
+curl -fsSL https://github.com/Perdonus/NV/releases/download/v1.4.7/nvd-linux.tar.gz -o /root/nvd-linux.tar.gz
 mkdir -p /opt/nvd/current
 tar -xzf /root/nvd-linux.tar.gz -C /opt/nvd/current
 cp /opt/nvd/current/install/nvd.service /etc/systemd/system/nvd.service

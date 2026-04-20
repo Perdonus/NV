@@ -275,6 +275,10 @@ func applyInstallLocation(pkg *api.ResolvedPackage, installedState *state.File, 
 
 	if installed, ok := getInstalledStateRecord(installedState, pkg.Name); ok {
 		if rememberedRoot := installedRootFromState(installed); rememberedRoot != "" {
+			if shouldIgnoreRememberedInstallRoot(pkg, rememberedRoot) {
+				pkg.Variant.InstallRoot = fallbackRoot
+				return nil
+			}
 			pkg.Variant.InstallRoot = rememberedRoot
 			return nil
 		}
@@ -419,9 +423,15 @@ func installLinuxPortableTarPackage(pkg *api.ResolvedPackage) error {
 		return err
 	}
 
-	step(5, 5, "обновляем ярлыки")
-	if err := ensureLinuxDesktopIntegration(pkg, installRoot); err != nil {
-		return err
+	step(5, 5, "настраиваем запуск")
+	if shouldUseLinuxDesktopIntegration(pkg) {
+		if err := ensureLinuxDesktopIntegration(pkg, installRoot); err != nil {
+			return err
+		}
+	} else {
+		if err := ensureLinuxPortableWrapper(pkg, installRoot); err != nil {
+			return err
+		}
 	}
 
 	fmt.Printf("Пакет %s установлен или обновлен до версии %s\n", pkg.Name, pkg.ResolvedVersion)
@@ -713,6 +723,9 @@ func resolveInstallRoot(configuredRoot, fallback string) (string, error) {
 func defaultInstallRoot(pkg *api.ResolvedPackage) string {
 	switch pkg.Variant.InstallStrategy {
 	case "windows-desktop-bundle", "windows-portable-zip":
+		if !isUnifiedDesktopPackage(pkg.Name) {
+			return filepath.Join(`%LOCALAPPDATA%`, "Programs", pkg.Name)
+		}
 		return filepath.Join(`%LOCALAPPDATA%`, "Programs", "NeuralV")
 	case "windows-self-binary":
 		if normalizePackageName(pkg.Name) == canonicalNVPackage {
@@ -720,6 +733,9 @@ func defaultInstallRoot(pkg *api.ResolvedPackage) string {
 		}
 		return filepath.Join(`%LOCALAPPDATA%`, pkg.Name)
 	case "linux-desktop-unified", "linux-portable-tar":
+		if !isUnifiedDesktopPackage(pkg.Name) && pkg.Variant.InstallStrategy == "linux-portable-tar" {
+			return filepath.Join("$HOME", ".local", "opt", pkg.Name)
+		}
 		return filepath.Join("$HOME", ".local", "opt", "NeuralV")
 	case "linux-cli-wrapper":
 		return filepath.Join("$HOME", ".local", "share", "neuralv-shell")
@@ -777,9 +793,108 @@ func resolvedLauncherPath(pkg *api.ResolvedPackage) string {
 	if binaryName := strings.TrimSpace(pkg.Variant.BinaryName); binaryName != "" {
 		candidates = append(candidates, binaryName)
 	}
-	candidates = append(candidates, "NeuralV.exe", "bin/NeuralV", pkg.Name)
+	candidates = append(candidates, defaultLauncherCandidates(pkg)...)
 
 	return resolveLauncherPath(pkg, installRoot, candidates...)
+}
+
+func shouldIgnoreRememberedInstallRoot(pkg *api.ResolvedPackage, installRoot string) bool {
+	if strings.TrimSpace(installRoot) == "" || isUnifiedDesktopPackage(pkg.Name) {
+		return false
+	}
+	switch pkg.Variant.InstallStrategy {
+	case "linux-portable-tar", "windows-portable-zip":
+		return strings.EqualFold(filepath.Base(filepath.Clean(installRoot)), "NeuralV")
+	default:
+		return false
+	}
+}
+
+func shouldUseLinuxDesktopIntegration(pkg *api.ResolvedPackage) bool {
+	if isUnifiedDesktopPackage(pkg.Name) {
+		return true
+	}
+	if enabled, ok := metadataString(pkg.Variant.Metadata, "desktopIntegration"); ok {
+		switch strings.ToLower(strings.TrimSpace(enabled)) {
+		case "1", "true", "yes", "on":
+			return true
+		}
+	}
+	return false
+}
+
+func defaultLauncherCandidates(pkg *api.ResolvedPackage) []string {
+	candidates := []string{}
+	add := func(value string) {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			return
+		}
+		for _, existing := range candidates {
+			if existing == value {
+				return
+			}
+		}
+		candidates = append(candidates, value)
+	}
+
+	if isUnifiedDesktopPackage(pkg.Name) {
+		add("NeuralV.exe")
+		add("bin/NeuralV")
+		add("NeuralV")
+	}
+
+	if wrapperName := strings.TrimSpace(pkg.Variant.WrapperName); wrapperName != "" {
+		add(wrapperName)
+		add("bin/" + wrapperName)
+	}
+
+	add(pkg.Name)
+	add("bin/" + pkg.Name)
+
+	if inferred := inferredBinaryName(pkg.Variant.DownloadURL); inferred != "" {
+		add(inferred)
+		add("bin/" + inferred)
+	}
+
+	return candidates
+}
+
+func ensureLinuxPortableWrapper(pkg *api.ResolvedPackage, installRoot string) error {
+	launcher := resolveLauncherPath(pkg, installRoot, defaultLauncherCandidates(pkg)...)
+	if _, err := os.Stat(launcher); err != nil {
+		return fmt.Errorf("launcher не найден после установки: %s", launcher)
+	}
+
+	wrapperName := strings.TrimSpace(pkg.Variant.WrapperName)
+	if wrapperName == "" {
+		wrapperName = strings.TrimSpace(pkg.Variant.BinaryName)
+	}
+	if wrapperName == "" {
+		if inferred := inferredBinaryName(pkg.Variant.DownloadURL); inferred != "" {
+			wrapperName = inferred
+		}
+	}
+	if wrapperName == "" {
+		wrapperName = pkg.Name
+	}
+	wrapperName = filepath.Base(filepath.FromSlash(wrapperName))
+
+	wrapperDir, err := resolveInstallRoot("$HOME/.local/bin", filepath.Join("$HOME", ".local", "bin"))
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(wrapperDir, 0o755); err != nil {
+		return err
+	}
+
+	wrapper := filepath.Join(wrapperDir, wrapperName)
+	wrapperBody := fmt.Sprintf("#!/usr/bin/env sh\nexec %q \"$@\"\n", launcher)
+	if err := writeExecutableFile(wrapper, []byte(wrapperBody)); err != nil {
+		return err
+	}
+	printPathHint(wrapperDir)
+	return nil
 }
 
 func resolvedWindowsBinDir(pkg *api.ResolvedPackage, installRoot string) string {
