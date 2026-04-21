@@ -75,15 +75,16 @@ func updateCommand(client *api.Client, args []string) error {
 
 	seen := map[string]struct{}{}
 	for _, target := range targets {
-		name, _, err := parsePackageSpec(target)
+		selection, err := parsePackageSpecDetailed(target)
 		if err != nil {
 			return err
 		}
+		name := selection.Name
 		if _, exists := seen[name]; exists {
 			continue
 		}
 		seen[name] = struct{}{}
-		if err := installPackage(client, name+"@latest", installOptions{}); err != nil {
+		if err := installPackage(client, target, installOptions{}); err != nil {
 			return err
 		}
 	}
@@ -175,7 +176,11 @@ func collectOutdated(client *api.Client, requested []string) ([]outdatedEntry, e
 }
 
 func latestInstalledPackageVersion(client *api.Client, packageName string, record state.InstalledPackage) (string, error) {
-	if resolved, err := client.ResolvePackage(packageName, "latest", runtime.GOOS, strings.TrimSpace(record.Package.Variant.ID)); err == nil && resolved != nil {
+	requestedRef := strings.TrimSpace(record.SelectedRef)
+	if requestedRef == "" {
+		requestedRef = "latest"
+	}
+	if resolved, err := client.ResolvePackage(packageName, requestedRef, runtime.GOOS, strings.TrimSpace(record.Package.Variant.ID)); err == nil && resolved != nil {
 		if !resolved.Success && strings.TrimSpace(resolved.Error) != "" {
 			return "", errors.New(strings.TrimSpace(resolved.Error))
 		}

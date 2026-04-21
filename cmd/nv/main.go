@@ -46,6 +46,13 @@ type installOptions struct {
 	InstallRootOverride string
 }
 
+type packageSpec struct {
+	Name            string
+	Version         string
+	ExplicitVersion bool
+	SelectedRef     string
+}
+
 func main() {
 	client := api.NewClient(resolveBaseURL())
 	if err := handle(os.Args[1:], client); err != nil {
@@ -180,14 +187,23 @@ func parseInstallArgs(args []string) (string, installOptions, error) {
 }
 
 func installPackage(client *api.Client, spec string, options installOptions) error {
-	name, version, err := parsePackageSpec(spec)
+	selection, err := parsePackageSpecDetailed(spec)
 	if err != nil {
 		return err
 	}
+	name := selection.Name
+	version := selection.Version
 
 	installedState, err := state.Load()
 	if err != nil {
 		return fmt.Errorf("не удалось открыть локальное состояние пакетов: %w", err)
+	}
+	if !selection.ExplicitVersion {
+		if installed, ok := getInstalledStateRecord(installedState, name); ok {
+			if rememberedRef := strings.TrimSpace(installed.SelectedRef); rememberedRef != "" {
+				version = rememberedRef
+			}
+		}
 	}
 
 	if isUnifiedDesktopPackage(name) {
@@ -232,7 +248,12 @@ func installPackage(client *api.Client, spec string, options installOptions) err
 	}
 
 	resolved.Package.Name = statePackageName(name, resolved.Package.Variant.ID)
-	installedState.PutWithLocation(resolved.Package, strings.TrimSpace(resolved.Package.Variant.InstallRoot), resolvedLauncherPath(&resolved.Package))
+	installedState.PutWithLocationAndRef(
+		resolved.Package,
+		strings.TrimSpace(resolved.Package.Variant.InstallRoot),
+		resolvedLauncherPath(&resolved.Package),
+		selectedRefForInstall(selection),
+	)
 	if err := state.Save(installedState); err != nil {
 		return fmt.Errorf("пакет установлен, но локальное состояние не обновлено: %w", err)
 	}
@@ -275,7 +296,7 @@ func applyInstallLocation(pkg *api.ResolvedPackage, installedState *state.File, 
 
 	if installed, ok := getInstalledStateRecord(installedState, pkg.Name); ok {
 		if rememberedRoot := installedRootFromState(installed); rememberedRoot != "" {
-			if shouldIgnoreRememberedInstallRoot(pkg, rememberedRoot) {
+			if shouldIgnoreRememberedInstallRoot(pkg, rememberedRoot, fallbackRoot) {
 				pkg.Variant.InstallRoot = fallbackRoot
 				return nil
 			}
@@ -625,40 +646,59 @@ func uninstallPackage(client *api.Client, name string) error {
 }
 
 func parsePackageSpec(spec string) (string, string, error) {
+	selection, err := parsePackageSpecDetailed(spec)
+	if err != nil {
+		return "", "", err
+	}
+	return selection.Name, selection.Version, nil
+}
+
+func parsePackageSpecDetailed(spec string) (packageSpec, error) {
 	raw := strings.TrimSpace(spec)
 	if raw == "" {
-		return "", "", errors.New("не указана спецификация пакета")
+		return packageSpec{}, errors.New("не указана спецификация пакета")
 	}
 
 	namePart := raw
 	version := "latest"
+	explicitVersion := false
 	if lastAt := strings.LastIndex(raw, "@"); lastAt > 0 {
 		candidateName := strings.TrimSpace(raw[:lastAt])
 		candidateVersion := strings.TrimSpace(raw[lastAt+1:])
 		if candidateName != "" && candidateVersion != "" {
 			namePart = candidateName
 			version = candidateVersion
+			explicitVersion = true
 		}
 	}
 
 	name := normalizePackageName(namePart)
 	if name == "" {
-		return "", "", errors.New("имя пакета не указано")
+		return packageSpec{}, errors.New("имя пакета не указано")
 	}
 
+	selectedRef := ""
 	if version != "latest" {
 		normalizedVersion, err := semver.Normalize(version)
 		if err != nil {
 			normalizedTag := normalizePackageTag(version)
 			if normalizedTag == "" {
-				return "", "", fmt.Errorf("некорректная версия или tag %q: используй semver или tag вроде latest/beta/canary", version)
+				return packageSpec{}, fmt.Errorf("некорректная версия или tag %q: используй semver или tag вроде latest/beta/canary", version)
 			}
 			version = normalizedTag
+			selectedRef = normalizedTag
 		} else {
 			version = normalizedVersion
 		}
+	} else if explicitVersion {
+		selectedRef = "latest"
 	}
-	return name, version, nil
+	return packageSpec{
+		Name:            name,
+		Version:         version,
+		ExplicitVersion: explicitVersion,
+		SelectedRef:     selectedRef,
+	}, nil
 }
 
 func normalizePackageTag(raw string) string {
@@ -798,13 +838,19 @@ func resolvedLauncherPath(pkg *api.ResolvedPackage) string {
 	return resolveLauncherPath(pkg, installRoot, candidates...)
 }
 
-func shouldIgnoreRememberedInstallRoot(pkg *api.ResolvedPackage, installRoot string) bool {
+func shouldIgnoreRememberedInstallRoot(pkg *api.ResolvedPackage, installRoot, fallbackRoot string) bool {
 	if strings.TrimSpace(installRoot) == "" || isUnifiedDesktopPackage(pkg.Name) {
 		return false
 	}
 	switch pkg.Variant.InstallStrategy {
 	case "linux-portable-tar", "windows-portable-zip":
-		return strings.EqualFold(filepath.Base(filepath.Clean(installRoot)), "NeuralV")
+		if strings.EqualFold(filepath.Base(filepath.Clean(installRoot)), "NeuralV") {
+			return true
+		}
+		if runtime.GOOS == "linux" && !sameFilePath(installRoot, fallbackRoot) && hasBrokenPortableWrapperTarget(pkg, installRoot) {
+			return true
+		}
+		return false
 	default:
 		return false
 	}
@@ -881,6 +927,9 @@ func ensureLinuxPortableWrapper(pkg *api.ResolvedPackage, installRoot string) er
 	if err := writeExecutableFile(wrapper, []byte(wrapperBody)); err != nil {
 		return err
 	}
+	for _, legacyName := range portableLegacyWrapperNames(pkg, wrapperName) {
+		_ = os.Remove(filepath.Join(wrapperDir, legacyName))
+	}
 	printPathHint(wrapperDir)
 	return nil
 }
@@ -891,14 +940,38 @@ func portableWrapperName(pkg *api.ResolvedPackage) string {
 		wrapperName = strings.TrimSpace(pkg.Variant.BinaryName)
 	}
 	if wrapperName == "" {
+		wrapperName = pkg.Name
+	}
+	if wrapperName == "" {
 		if inferred := inferredBinaryName(pkg.Variant.DownloadURL); inferred != "" {
 			wrapperName = inferred
 		}
 	}
-	if wrapperName == "" {
-		wrapperName = pkg.Name
-	}
 	return filepath.Base(filepath.FromSlash(wrapperName))
+}
+
+func portableLegacyWrapperNames(pkg *api.ResolvedPackage, canonical string) []string {
+	legacy := []string{}
+	add := func(value string) {
+		value = filepath.Base(filepath.FromSlash(strings.TrimSpace(value)))
+		if value == "" || value == canonical {
+			return
+		}
+		for _, existing := range legacy {
+			if existing == value {
+				return
+			}
+		}
+		legacy = append(legacy, value)
+	}
+
+	if inferred := inferredBinaryName(pkg.Variant.DownloadURL); inferred != "" {
+		add(inferred)
+	}
+	if binaryName := strings.TrimSpace(pkg.Variant.BinaryName); binaryName != "" {
+		add(binaryName)
+	}
+	return legacy
 }
 
 func resolvedWindowsBinDir(pkg *api.ResolvedPackage, installRoot string) string {
@@ -2553,6 +2626,56 @@ func getInstalledStateRecord(installedState *state.File, name string) (state.Ins
 		}
 	}
 	return state.InstalledPackage{}, false
+}
+
+func selectedRefForInstall(selection packageSpec) string {
+	if strings.TrimSpace(selection.SelectedRef) != "" {
+		return strings.TrimSpace(selection.SelectedRef)
+	}
+	if selection.ExplicitVersion {
+		return ""
+	}
+	return ""
+}
+
+func hasBrokenPortableWrapperTarget(pkg *api.ResolvedPackage, installRoot string) bool {
+	if runtime.GOOS != "linux" || shouldUseLinuxDesktopIntegration(pkg) {
+		return false
+	}
+
+	wrapperDir, err := resolveInstallRoot("$HOME/.local/bin", filepath.Join("$HOME", ".local", "bin"))
+	if err != nil {
+		return false
+	}
+	wrapperPath := filepath.Join(wrapperDir, portableWrapperName(pkg))
+	target, ok := readShellWrapperTarget(wrapperPath)
+	if !ok || target == "" {
+		return false
+	}
+	expected := resolveLauncherPath(pkg, installRoot, defaultLauncherCandidates(pkg)...)
+	if expected == "" {
+		return false
+	}
+	return !sameFilePath(target, expected)
+}
+
+func readShellWrapperTarget(path string) (string, bool) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", false
+	}
+	text := strings.TrimSpace(string(data))
+	patterns := []*regexp.Regexp{
+		regexp.MustCompile(`(?m)^exec "([^"]+)" "\$@"$`),
+		regexp.MustCompile(`(?m)^exec '([^']+)' "\$@"$`),
+	}
+	for _, pattern := range patterns {
+		match := pattern.FindStringSubmatch(text)
+		if len(match) == 2 {
+			return strings.TrimSpace(match[1]), true
+		}
+	}
+	return "", false
 }
 
 func installUnifiedDesktopProduct(client *api.Client, installedState *state.File, name, version string, options installOptions) error {
