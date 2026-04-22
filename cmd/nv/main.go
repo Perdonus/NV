@@ -233,7 +233,9 @@ func installPackage(client *api.Client, spec string, options installOptions) err
 		return err
 	}
 	if installed, ok := getInstalledStateRecord(installedState, name); ok {
-		if sameInstalledPackage(installed.Package, resolved.Package) && sameFilePath(installedRootFromState(installed), resolved.Package.Variant.InstallRoot) {
+		if sameInstalledPackage(installed.Package, resolved.Package) &&
+			sameFilePath(installedRootFromState(installed), resolved.Package.Variant.InstallRoot) &&
+			!needsInstallRepair(&resolved.Package) {
 			fmt.Printf("Пакет %s уже установлен: %s\n", resolved.Package.Name, resolved.Package.ResolvedVersion)
 			return nil
 		}
@@ -1672,6 +1674,18 @@ func removeLegacyWindowsSelfBinaryWrappers(installRoot string) error {
 		}
 	}
 	return nil
+}
+
+func needsInstallRepair(pkg *api.ResolvedPackage) bool {
+	if runtime.GOOS != "windows" {
+		return false
+	}
+	if pkg == nil || pkg.Variant.InstallStrategy != "windows-self-binary" {
+		return false
+	}
+	legacyWrapper := filepath.Join(strings.TrimSpace(pkg.Variant.InstallRoot), "nv.cmd")
+	_, err := os.Stat(legacyWrapper)
+	return err == nil
 }
 
 func ensureWindowsUserPath(installRoot string) error {
