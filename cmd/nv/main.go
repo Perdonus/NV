@@ -594,7 +594,7 @@ func installWindowsSelfBinaryPackage(pkg *api.ResolvedPackage) error {
 		_ = os.Remove(stagePath)
 		return err
 	}
-	if err := ensureWindowsCmdWrapper(installRoot, binaryName); err != nil {
+	if err := removeLegacyWindowsSelfBinaryWrappers(installRoot); err != nil {
 		return err
 	}
 	if err := ensureWindowsUserPath(installRoot); err != nil {
@@ -1662,11 +1662,16 @@ func ensureWindowsShortcuts(pkg *api.ResolvedPackage, installRoot string) error 
 	return createWindowsShortcuts(launcher, installRoot, startMenu, desktop)
 }
 
-func ensureWindowsCmdWrapper(installRoot, binaryName string) error {
-	target := filepath.Join(installRoot, binaryName)
-	wrapper := filepath.Join(installRoot, "nv.cmd")
-	script := fmt.Sprintf("@echo off\r\n\"%s\" %%*\r\n", target)
-	return os.WriteFile(wrapper, []byte(script), 0o755)
+func removeLegacyWindowsSelfBinaryWrappers(installRoot string) error {
+	legacyWrappers := []string{
+		filepath.Join(installRoot, "nv.cmd"),
+	}
+	for _, wrapper := range legacyWrappers {
+		if err := os.Remove(wrapper); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("не удалось убрать старый launcher %s: %w", filepath.Base(wrapper), err)
+		}
+	}
+	return nil
 }
 
 func ensureWindowsUserPath(installRoot string) error {
