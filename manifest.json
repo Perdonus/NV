@@ -1,0 +1,18 @@
+{
+  "success": true,
+  "generated_at": "2026-04-22T14:34:45Z",
+  "release_channel": "main",
+  "artifacts": [
+    {
+      "platform": "nv-windows",
+      "channel": "main",
+      "version": "1.4.11",
+      "sha256": "a7e2d742439411a1b298631527dffddebf3b68e6b450069e1ac0e1fa35b6756a",
+      "download_url": "https://github.com/Perdonus/NV/releases/download/v1.4.11/nv-1.4.11.exe",
+      "file_name": "nv-1.4.11.exe",
+      "metadata": {
+        "releaseTag": "v1.4.11"
+      }
+    }
+  ]
+}
