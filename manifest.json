@@ -1,0 +1,18 @@
+{
+  "success": true,
+  "generated_at": "2026-04-22T14:34:18Z",
+  "release_channel": "main",
+  "artifacts": [
+    {
+      "platform": "nv-linux",
+      "channel": "main",
+      "version": "1.4.11",
+      "sha256": "2ce4236f3349d2a01a173b2aaf02b0a2551257ea2d91174b1e36a12578afb626",
+      "download_url": "https://github.com/Perdonus/NV/releases/download/v1.4.11/nv-linux-1.4.11.tar.gz",
+      "file_name": "nv-linux-1.4.11.tar.gz",
+      "metadata": {
+        "releaseTag": "v1.4.11"
+      }
+    }
+  ]
+}
