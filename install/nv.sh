@@ -39,6 +39,19 @@ download_file() {
   curl -fsSL "$1" -o "$2"
 }
 
+cache_bust_value() {
+  date +%s 2>/dev/null || echo "$$"
+}
+
+with_cache_bust() {
+  url="$1"
+  token="$2"
+  case "$url" in
+    *\?*) printf '%s&_nvts=%s\n' "$url" "$token" ;;
+    *) printf '%s?_nvts=%s\n' "$url" "$token" ;;
+  esac
+}
+
 json_string() {
   key="$1"
   tr '\n' ' ' | sed -n "s/.*\"$key\"[[:space:]]*:[[:space:]]*\"\\([^\"]*\\)\".*/\\1/p" | head -n 1
@@ -69,7 +82,9 @@ platform_os() {
 mkdir -p "$INSTALL_ROOT"
 PLATFORM="${NV_PLATFORM:-$(detect_platform)}"
 PLATFORM_OS="$(platform_os "$PLATFORM")"
-download_file "$API_BASE/bootstrap/manifest?platform=$PLATFORM" "$TMP_DIR/manifest.json"
+CACHE_BUST="$(cache_bust_value)"
+MANIFEST_URL="$(with_cache_bust "$API_BASE/bootstrap/manifest?platform=$PLATFORM" "$CACHE_BUST")"
+download_file "$MANIFEST_URL" "$TMP_DIR/manifest.json"
 NV_URL="$(json_string download_url < "$TMP_DIR/manifest.json")"
 VERSION="$(json_string version < "$TMP_DIR/manifest.json")"
 FILE_NAME="$(json_string file_name < "$TMP_DIR/manifest.json")"
@@ -79,7 +94,7 @@ case "$NV_URL" in
 esac
 [ -n "$VERSION" ] || VERSION="unknown"
 [ -n "$FILE_NAME" ] || FILE_NAME="$PLATFORM-$VERSION.tar.gz"
-download_file "$NV_URL" "$TMP_DIR/nv.tar.gz"
+download_file "$(with_cache_bust "$NV_URL" "$CACHE_BUST")" "$TMP_DIR/nv.tar.gz"
 tar -xzf "$TMP_DIR/nv.tar.gz" -C "$TMP_DIR"
 NV_BIN="$(find "$TMP_DIR" -maxdepth 2 -type f -name 'nv' | head -n 1)"
 [ -n "$NV_BIN" ] || { echo "payload nv не найден" >&2; exit 1; }
@@ -131,6 +146,9 @@ cat > "$STATE_PATH" <<EOF
 EOF
 fi
 echo "Установлен или обновлён nv в $TARGET"
+if INSTALLED_VERSION="$("$TARGET" --version 2>/dev/null || true)" && [ -n "$INSTALLED_VERSION" ]; then
+  echo "$INSTALLED_VERSION"
+fi
 
 append_path_once() {
   rc_file="$1"

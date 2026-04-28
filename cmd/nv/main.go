@@ -2197,7 +2197,7 @@ func humanizeError(err error) string {
 	case strings.Contains(lower, "http 500"), strings.Contains(lower, "http 502"), strings.Contains(lower, "http 503"), strings.Contains(lower, "http 504"):
 		return "сервер временно недоступен. Попробуй позже."
 	case strings.Contains(lower, "x509:"), strings.Contains(lower, "certificate signed by unknown authority"):
-		return "система не доверяет TLS-сертификату. На Termux установи ca-certificates и обнови NV."
+		return "система не доверяет TLS-сертификату. Обнови NV через установщик: curl -fsSL https://sosiskibot.ru/install/nv.sh | sh"
 	case strings.Contains(lower, "context deadline exceeded"), strings.Contains(lower, "client.timeout exceeded"), strings.Contains(lower, "timeout"):
 		return "сервер отвечает слишком долго. Попробуй ещё раз позже."
 	case strings.Contains(lower, "dial tcp"), strings.Contains(lower, "no such host"), strings.Contains(lower, "connection refused"):

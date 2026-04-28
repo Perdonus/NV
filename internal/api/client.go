@@ -198,18 +198,51 @@ func termuxRootCAs() *x509.CertPool {
 	}
 
 	added := false
-	for _, candidate := range []string{
-		filepath.Join(prefix, "etc", "tls", "cert.pem"),
-		filepath.Join(prefix, "etc", "ssl", "cert.pem"),
-		filepath.Join(prefix, "etc", "ssl", "certs", "ca-certificates.crt"),
-	} {
+	appendPEMFile := func(candidate string) {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" {
+			return
+		}
 		payload, err := os.ReadFile(candidate)
 		if err != nil || len(payload) == 0 {
-			continue
+			return
 		}
 		if pool.AppendCertsFromPEM(payload) {
 			added = true
 		}
+	}
+	appendPEMDir := func(candidate string) {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" {
+			return
+		}
+		entries, err := os.ReadDir(candidate)
+		if err != nil {
+			return
+		}
+		for _, entry := range entries {
+			if entry.IsDir() {
+				continue
+			}
+			appendPEMFile(filepath.Join(candidate, entry.Name()))
+		}
+	}
+
+	for _, candidate := range []string{
+		os.Getenv("SSL_CERT_FILE"),
+		filepath.Join(prefix, "etc", "tls", "cert.pem"),
+		filepath.Join(prefix, "etc", "ssl", "cert.pem"),
+		filepath.Join(prefix, "etc", "ssl", "certs", "ca-certificates.crt"),
+	} {
+		appendPEMFile(candidate)
+	}
+	for _, candidate := range []string{
+		os.Getenv("SSL_CERT_DIR"),
+		filepath.Join(prefix, "etc", "ssl", "certs"),
+		"/system/etc/security/cacerts",
+		"/apex/com.android.conscrypt/cacerts",
+	} {
+		appendPEMDir(candidate)
 	}
 	if !added {
 		return nil
