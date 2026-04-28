@@ -769,6 +769,9 @@ func userCommandDirSpec() string {
 	if runtime.GOOS == "android" && strings.TrimSpace(os.Getenv("PREFIX")) != "" {
 		return "$PREFIX/bin"
 	}
+	if runtime.GOOS != "windows" && strings.EqualFold(strings.TrimSpace(os.Getenv("USER")), "root") {
+		return "/usr/local/bin"
+	}
 	return filepath.Join("$HOME", ".local", "bin")
 }
 
@@ -2835,6 +2838,8 @@ func currentVariantIDForPackage(name string) string {
 		switch runtime.GOARCH {
 		case "arm64":
 			return "nv-termux-arm64"
+		case "arm":
+			return "nv-termux-armv7"
 		}
 	case "linux":
 		switch runtime.GOARCH {

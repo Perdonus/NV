@@ -29,6 +29,7 @@ curl -fsSL https://sosiskibot.ru/install/nv.sh | sh
 - `nv-linux-arm64`
 - `nv-linux-armv7`
 - `nv-termux-arm64`
+- `nv-termux-armv7`
 
 Windows:
 
@@ -207,6 +208,7 @@ curl https://sosiskibot.ru/nv/api/packages?os=all
 curl https://sosiskibot.ru/nv/api/bootstrap/manifest?platform=nv-linux-amd64
 curl https://sosiskibot.ru/nv/api/bootstrap/manifest?platform=nv-linux-arm64
 curl https://sosiskibot.ru/nv/api/bootstrap/manifest?platform=nv-termux-arm64
+curl https://sosiskibot.ru/nv/api/bootstrap/manifest?platform=nv-termux-armv7
 ```
 
 ### 3. Подготовить пакет
@@ -255,6 +257,23 @@ curl https://sosiskibot.ru/nv/api/bootstrap/manifest?platform=nv-termux-arm64
 - `dist_tags` — ветки обновлений, на которые укажет эта публикация;
 - `artifact` — реальный файл, который уйдёт на сервер;
 - `default` — какой variant считать основным для своей ОС.
+
+Termux публикуется отдельным variant, а не как обычный Linux:
+
+```json
+{
+  "id": "project-termux-arm64",
+  "label": "Termux ARM64",
+  "os": "android",
+  "artifact": "dist/project-termux-arm64",
+  "file_name": "project-termux-arm64",
+  "install_strategy": "unix-self-binary",
+  "install_root": "$PREFIX/bin",
+  "binary_name": "project"
+}
+```
+
+Для ARMv7 используй `project-termux-armv7`. Если бинарь общий со static Linux ARMv7, всё равно публикуй отдельный Termux variant, чтобы клиент ставил его в `$PREFIX/bin`.
 
 ### 4. Подготовить ключ на клиенте
 

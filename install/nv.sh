@@ -7,10 +7,23 @@ IS_TERMUX=0
 if [ -n "${PREFIX:-}" ] && printf '%s' "$PREFIX" | grep -q '/com.termux/'; then
   IS_TERMUX=1
 fi
-if [ -z "${NV_INSTALL_ROOT:-}" ] && [ "$IS_TERMUX" -eq 1 ] && [ -n "${PREFIX:-}" ]; then
-  INSTALL_ROOT="$PREFIX/bin"
+
+default_install_root() {
+  if [ "$IS_TERMUX" -eq 1 ] && [ -n "${PREFIX:-}" ]; then
+    echo "$PREFIX/bin"
+    return
+  fi
+  if [ "$(id -u 2>/dev/null || echo 1)" = "0" ] && [ -d /usr/local/bin ] && [ -w /usr/local/bin ]; then
+    echo "/usr/local/bin"
+    return
+  fi
+  echo "$HOME/.local/bin"
+}
+
+if [ -z "${NV_INSTALL_ROOT:-}" ]; then
+  INSTALL_ROOT="$(default_install_root)"
 else
-  INSTALL_ROOT="${NV_INSTALL_ROOT:-$HOME/.local/bin}"
+  INSTALL_ROOT="$NV_INSTALL_ROOT"
 fi
 TARGET="$INSTALL_ROOT/nv"
 LEGACY_TERMUX_TARGET="$HOME/.local/bin/nv"
@@ -40,10 +53,6 @@ detect_platform() {
     *) echo "архитектура $machine пока не поддерживается" >&2; exit 1 ;;
   esac
   if [ "$IS_TERMUX" -eq 1 ]; then
-    if [ "$arch" = "armv7" ]; then
-      echo "Termux ARMv7 пока не поддерживается: нужен arm64 build." >&2
-      exit 1
-    fi
     echo "nv-termux-$arch"
   else
     echo "nv-linux-$arch"
@@ -122,11 +131,54 @@ cat > "$STATE_PATH" <<EOF
 EOF
 fi
 echo "Установлен или обновлён nv в $TARGET"
+
+append_path_once() {
+  rc_file="$1"
+  [ -n "$rc_file" ] || return 0
+  mkdir -p "$(dirname "$rc_file")"
+  touch "$rc_file"
+  if grep -F "NV installer PATH" "$rc_file" >/dev/null 2>&1 || grep -F "$INSTALL_ROOT" "$rc_file" >/dev/null 2>&1; then
+    return 0
+  fi
+  {
+    echo ""
+    echo "# NV installer PATH"
+    echo "case \":\$PATH:\" in"
+    echo "  *\":$INSTALL_ROOT:\"*) ;;"
+    echo "  *) export PATH=\"$INSTALL_ROOT:\$PATH\" ;;"
+    echo "esac"
+  } >> "$rc_file"
+}
+
+ensure_shell_path() {
+  case ":$PATH:" in
+    *":$INSTALL_ROOT:"*) return 0 ;;
+  esac
+  if [ "$IS_TERMUX" -eq 1 ] && [ -n "${PREFIX:-}" ] && [ "$INSTALL_ROOT" = "$PREFIX/bin" ]; then
+    return 0
+  fi
+  append_path_once "$HOME/.profile"
+  shell_name="$(basename "${SHELL:-}")"
+  case "$shell_name" in
+    bash) append_path_once "$HOME/.bashrc" ;;
+    zsh) append_path_once "$HOME/.zshrc" ;;
+    fish)
+      fish_config="$HOME/.config/fish/config.fish"
+      mkdir -p "$(dirname "$fish_config")"
+      touch "$fish_config"
+      if ! grep -F "$INSTALL_ROOT" "$fish_config" >/dev/null 2>&1; then
+        printf '\n# NV installer PATH\nfish_add_path %s\n' "$INSTALL_ROOT" >> "$fish_config"
+      fi
+      ;;
+  esac
+}
+
+ensure_shell_path
 if FOUND_NV="$(command -v nv 2>/dev/null || true)" && [ -n "$FOUND_NV" ] && [ "$FOUND_NV" != "$TARGET" ]; then
   echo "PATH сейчас находит другой nv: $FOUND_NV" >&2
   echo "Открой новую сессию или выполни: hash -r" >&2
 fi
 case ":$PATH:" in
   *":$INSTALL_ROOT:"*) ;;
-  *) echo "PATH: добавь $INSTALL_ROOT в PATH или перезапусти shell." ;;
+  *) echo "PATH прописан в shell config. Открой новую консоль или выполни: export PATH=\"$INSTALL_ROOT:\$PATH\"" ;;
 esac
