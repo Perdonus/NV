@@ -9,8 +9,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/fs"
 	"io"
+	"io/fs"
 	"net/http"
 	"net/url"
 	"os"
@@ -197,6 +197,11 @@ func installPackage(client *api.Client, spec string, options installOptions) err
 	installedState, err := state.Load()
 	if err != nil {
 		return fmt.Errorf("не удалось открыть локальное состояние пакетов: %w", err)
+	}
+	if normalizePackageName(name) == canonicalNVPackage {
+		if syncInstalledNVState(installedState) {
+			_ = state.Save(installedState)
+		}
 	}
 	if !selection.ExplicitVersion {
 		if installed, ok := getInstalledStateRecord(installedState, name); ok {
@@ -1863,7 +1868,7 @@ func downloadRawFile(url, target string) error {
 	if err != nil {
 		return fmt.Errorf("не удалось подготовить скачивание: %w", err)
 	}
-	client := &http.Client{Timeout: 5 * time.Minute}
+	client := api.NewHTTPClient()
 	response, err := client.Do(request)
 	if err != nil {
 		return fmt.Errorf("не удалось скачать пакет: %w", err)
@@ -1881,7 +1886,7 @@ func downloadArtifactBinary(url, target, expectedName string) error {
 	if err != nil {
 		return fmt.Errorf("не удалось подготовить скачивание: %w", err)
 	}
-	client := &http.Client{Timeout: 5 * time.Minute}
+	client := api.NewHTTPClient()
 	response, err := client.Do(request)
 	if err != nil {
 		return fmt.Errorf("не удалось скачать пакет: %w", err)
@@ -2678,6 +2683,63 @@ func getInstalledStateRecord(installedState *state.File, name string) (state.Ins
 		}
 	}
 	return state.InstalledPackage{}, false
+}
+
+func syncInstalledNVState(installedState *state.File) bool {
+	if installedState == nil || semver.Validate(strings.TrimSpace(nvVersion)) != nil {
+		return false
+	}
+	installed, ok := getInstalledStateRecord(installedState, canonicalNVPackage)
+	if !ok {
+		return false
+	}
+
+	pkg := installed.Package
+	changed := false
+	setString := func(current *string, next string) {
+		next = strings.TrimSpace(next)
+		if next == "" || *current == next {
+			return
+		}
+		*current = next
+		changed = true
+	}
+
+	setString(&pkg.Name, canonicalNVPackage)
+	setString(&pkg.LatestVersion, nvVersion)
+	setString(&pkg.ResolvedVersion, nvVersion)
+	setString(&pkg.Variant.Version, nvVersion)
+	if pkg.Variant.ID == "" {
+		setString(&pkg.Variant.ID, currentVariantIDForPackage(canonicalNVPackage))
+	}
+	if pkg.Variant.BinaryName == "" {
+		setString(&pkg.Variant.BinaryName, "nv")
+	}
+	if pkg.Variant.InstallStrategy == "" {
+		setString(&pkg.Variant.InstallStrategy, "unix-self-binary")
+	}
+	if root := currentExecutableRoot(); root != "" {
+		setString(&installed.InstallRoot, root)
+		setString(&pkg.Variant.InstallRoot, root)
+	}
+	if !changed {
+		return false
+	}
+
+	installedState.Delete(legacyNVPackage)
+	installedState.PutWithLocationAndRef(pkg, installed.InstallRoot, installed.Launcher, installed.SelectedRef)
+	return true
+}
+
+func currentExecutableRoot() string {
+	executable, err := os.Executable()
+	if err != nil || strings.TrimSpace(executable) == "" {
+		return ""
+	}
+	if resolved, err := filepath.EvalSymlinks(executable); err == nil && strings.TrimSpace(resolved) != "" {
+		executable = resolved
+	}
+	return filepath.Dir(executable)
 }
 
 func selectedRefForInstall(selection packageSpec) string {

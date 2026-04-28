@@ -172,6 +172,10 @@ func NewClient(baseURL string) *Client {
 	}
 }
 
+func NewHTTPClient() *http.Client {
+	return newHTTPClient()
+}
+
 func newHTTPClient() *http.Client {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	if rootCAs := termuxRootCAs(); rootCAs != nil {
