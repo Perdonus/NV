@@ -1,0 +1,5 @@
+Repository: Perdonus/NV
+Version: 1.4.20
+Commit: ffaf4b9e4d5cbadbac55477478826fa099183fce
+Workflow Run: https://github.com/Perdonus/NV/actions/runs/25078750059
+Built At: 2026-04-28T21:31:59Z

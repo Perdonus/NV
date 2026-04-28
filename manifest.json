@@ -1,0 +1,18 @@
+{
+  "success": true,
+  "generated_at": "2026-04-28T21:31:59Z",
+  "release_channel": "main",
+  "artifacts": [
+    {
+      "platform": "nv-linux",
+      "channel": "main",
+      "version": "1.4.20",
+      "sha256": "5cac23f950617b70a2b0178942af2c6d4fe2112a8921f33abe7b9da906baa00b",
+      "download_url": "https://github.com/Perdonus/NV/releases/download/v1.4.20/nv-linux-1.4.20.tar.gz",
+      "file_name": "nv-linux-1.4.20.tar.gz",
+      "metadata": {
+        "releaseTag": "v1.4.20"
+      }
+    }
+  ]
+}
