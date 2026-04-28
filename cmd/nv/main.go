@@ -1871,6 +1871,11 @@ func downloadRawFile(url, target string) error {
 	client := api.NewHTTPClient()
 	response, err := client.Do(request)
 	if err != nil {
+		if isTermuxRuntime() {
+			if curlErr := downloadRawFileWithCurl(url, target); curlErr == nil {
+				return nil
+			}
+		}
 		return fmt.Errorf("не удалось скачать пакет: %w", err)
 	}
 	defer response.Body.Close()
@@ -1889,6 +1894,11 @@ func downloadArtifactBinary(url, target, expectedName string) error {
 	client := api.NewHTTPClient()
 	response, err := client.Do(request)
 	if err != nil {
+		if isTermuxRuntime() {
+			if curlErr := downloadArtifactBinaryWithCurl(url, target, expectedName); curlErr == nil {
+				return nil
+			}
+		}
 		return fmt.Errorf("не удалось скачать пакет: %w", err)
 	}
 	defer response.Body.Close()
@@ -1902,6 +1912,72 @@ func downloadArtifactBinary(url, target, expectedName string) error {
 		return extractTarball(response.Body, target, expectedName)
 	}
 	return copyToTarget(response.Body, target)
+}
+
+func downloadRawFileWithCurl(url, target string) error {
+	tempPath, cleanup, err := downloadURLWithCurl(url, filepath.Dir(target))
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+	if err := os.Chmod(tempPath, 0o755); err != nil {
+		return err
+	}
+	return replaceFile(tempPath, target)
+}
+
+func downloadArtifactBinaryWithCurl(url, target, expectedName string) error {
+	tempPath, cleanup, err := downloadURLWithCurl(url, filepath.Dir(target))
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+
+	lowerURL := strings.ToLower(url)
+	if strings.HasSuffix(lowerURL, ".tar.gz") || strings.HasSuffix(lowerURL, ".tgz") {
+		file, err := os.Open(tempPath)
+		if err != nil {
+			return err
+		}
+		defer file.Close()
+		return extractTarball(file, target, expectedName)
+	}
+	if err := os.Chmod(tempPath, 0o755); err != nil {
+		return err
+	}
+	return replaceFile(tempPath, target)
+}
+
+func downloadURLWithCurl(url, parentDir string) (string, func(), error) {
+	if !isTermuxRuntime() {
+		return "", func() {}, errors.New("curl fallback is only enabled for Termux")
+	}
+	if _, err := exec.LookPath("curl"); err != nil {
+		return "", func() {}, err
+	}
+	if parentDir = strings.TrimSpace(parentDir); parentDir == "" {
+		parentDir = os.TempDir()
+	}
+	if err := os.MkdirAll(parentDir, 0o755); err != nil {
+		return "", func() {}, err
+	}
+	tempFile, err := os.CreateTemp(parentDir, ".nv-curl-*")
+	if err != nil {
+		return "", func() {}, err
+	}
+	tempPath := tempFile.Name()
+	if err := tempFile.Close(); err != nil {
+		_ = os.Remove(tempPath)
+		return "", func() {}, err
+	}
+	cleanup := func() { _ = os.Remove(tempPath) }
+
+	command := exec.Command("curl", "-fsSL", "--connect-timeout", "20", "--max-time", "600", "-o", tempPath, url)
+	if output, err := command.CombinedOutput(); err != nil {
+		cleanup()
+		return "", func() {}, fmt.Errorf("%w: %s", err, strings.TrimSpace(string(output)))
+	}
+	return tempPath, cleanup, nil
 }
 
 func writeRegularFile(target string, reader io.Reader, mode os.FileMode) error {

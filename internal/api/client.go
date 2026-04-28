@@ -5,12 +5,14 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -438,7 +440,11 @@ func getJSON[T any](c *Client, route string, query url.Values, token string) (*T
 
 	resp, err := c.http.Do(request)
 	if err != nil {
-		return nil, err
+		body, curlErr := curlGet(fullURL, token)
+		if curlErr != nil {
+			return nil, err
+		}
+		return parseJSONResponse[T](body)
 	}
 	defer resp.Body.Close()
 
@@ -449,7 +455,10 @@ func getJSON[T any](c *Client, route string, query url.Values, token string) (*T
 	if resp.StatusCode >= 400 {
 		return nil, fmt.Errorf("http %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
+	return parseJSONResponse[T](body)
+}
 
+func parseJSONResponse[T any](body []byte) (*T, error) {
 	var parsed T
 	if err := json.Unmarshal(body, &parsed); err != nil {
 		return nil, err
@@ -463,6 +472,31 @@ func getJSON[T any](c *Client, route string, query url.Values, token string) (*T
 		typed.Package.Name = canonicalPackageName(typed.Package.Name)
 	}
 	return &parsed, nil
+}
+
+func curlGet(fullURL, token string) ([]byte, error) {
+	if !isTermuxRuntime() {
+		return nil, errors.New("curl fallback is only enabled for Termux")
+	}
+	if _, err := exec.LookPath("curl"); err != nil {
+		return nil, err
+	}
+	args := []string{"-fsSL", "--connect-timeout", "20", "--max-time", "600"}
+	if token = strings.TrimSpace(token); token != "" {
+		args = append(args, "-H", "Authorization: Bearer "+token)
+	}
+	args = append(args, fullURL)
+	command := exec.Command("curl", args...)
+	output, err := command.Output()
+	if err != nil {
+		return nil, err
+	}
+	return output, nil
+}
+
+func isTermuxRuntime() bool {
+	prefix := strings.TrimSpace(os.Getenv("PREFIX"))
+	return prefix != "" && strings.Contains(prefix, "com.termux")
 }
 
 func normalizeOS(goos string) string {
