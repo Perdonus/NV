@@ -13,6 +13,7 @@ else
   INSTALL_ROOT="${NV_INSTALL_ROOT:-$HOME/.local/bin}"
 fi
 TARGET="$INSTALL_ROOT/nv"
+LEGACY_TERMUX_TARGET="$HOME/.local/bin/nv"
 TMP_DIR="$(mktemp -d)"
 cleanup() { rm -rf "$TMP_DIR"; }
 trap cleanup EXIT INT TERM
@@ -74,6 +75,9 @@ tar -xzf "$TMP_DIR/nv.tar.gz" -C "$TMP_DIR"
 NV_BIN="$(find "$TMP_DIR" -maxdepth 2 -type f -name 'nv' | head -n 1)"
 [ -n "$NV_BIN" ] || { echo "payload nv не найден" >&2; exit 1; }
 install -m 0755 "$NV_BIN" "$TARGET"
+if [ "$IS_TERMUX" -eq 1 ] && [ "$TARGET" != "$LEGACY_TERMUX_TARGET" ]; then
+  rm -f "$LEGACY_TERMUX_TARGET"
+fi
 STATE_ROOT="${XDG_STATE_HOME:-$HOME/.local/state}"
 STATE_DIR="$STATE_ROOT/nv"
 STATE_PATH="$STATE_DIR/packages.json"
@@ -118,6 +122,10 @@ cat > "$STATE_PATH" <<EOF
 EOF
 fi
 echo "Установлен или обновлён nv в $TARGET"
+if FOUND_NV="$(command -v nv 2>/dev/null || true)" && [ -n "$FOUND_NV" ] && [ "$FOUND_NV" != "$TARGET" ]; then
+  echo "PATH сейчас находит другой nv: $FOUND_NV" >&2
+  echo "Открой новую сессию или выполни: hash -r" >&2
+fi
 case ":$PATH:" in
   *":$INSTALL_ROOT:"*) ;;
   *) echo "PATH: добавь $INSTALL_ROOT в PATH или перезапусти shell." ;;
