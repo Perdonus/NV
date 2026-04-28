@@ -55,8 +55,8 @@ jobs:
           build_nv nv-linux-amd64 linux amd64
           build_nv nv-linux-arm64 linux arm64
           build_nv nv-linux-armv7 linux arm 7
-          build_nv nv-termux-arm64 android arm64
           cp dist/nv-linux-amd64.tar.gz dist/nv-linux.tar.gz
+          cp dist/nv-linux-arm64.tar.gz dist/nv-termux-arm64.tar.gz
           cp dist/nv-linux-armv7.tar.gz dist/nv-termux-armv7.tar.gz
           CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o dist/nvd ./cmd/nvd
           mkdir -p dist/nvd-bundle/registry dist/nvd-bundle/install
