@@ -211,9 +211,9 @@ func installPackage(client *api.Client, spec string, options installOptions) err
 	}
 
 	step(1, 3, fmt.Sprintf("получаем пакет %s", name))
-	resolved, err := client.ResolvePackage(name, version, runtime.GOOS, currentVariantIDForPackage(name))
+	resolved, err := resolvePackageForCurrentPlatform(client, name, version)
 	if err != nil {
-		return fmt.Errorf("реестр пакетов недоступен: %w", err)
+		return err
 	}
 	if !resolved.Success && strings.TrimSpace(resolved.Error) != "" {
 		return errors.New(strings.TrimSpace(resolved.Error))
@@ -386,7 +386,7 @@ func installLinuxCLIWrapperPackage(pkg *api.ResolvedPackage) error {
 	if wrapperName == "" {
 		wrapperName = pkg.Name
 	}
-	wrapperDir, err := resolveInstallRoot("$HOME/.local/bin", filepath.Join("$HOME", ".local", "bin"))
+	wrapperDir, err := resolveUserCommandDir()
 	if err != nil {
 		return err
 	}
@@ -531,7 +531,7 @@ func installWindowsPortableZipPackage(pkg *api.ResolvedPackage) error {
 }
 
 func installUnixBinaryPackage(pkg *api.ResolvedPackage) error {
-	installRoot, err := resolveInstallRoot(pkg.Variant.InstallRoot, "$HOME/.local/bin")
+	installRoot, err := resolveInstallRoot(pkg.Variant.InstallRoot, userCommandDirSpec())
 	if err != nil {
 		return err
 	}
@@ -627,9 +627,9 @@ func uninstallPackage(client *api.Client, name string) error {
 	if installed, ok := getInstalledStateRecord(installedState, normalized); ok {
 		pkg = &installed.Package
 	} else {
-		resolved, err := client.ResolvePackage(normalized, "latest", runtime.GOOS, "")
+		resolved, err := resolvePackageForCurrentPlatform(client, normalized, "latest")
 		if err != nil {
-			return fmt.Errorf("реестр пакетов недоступен: %w", err)
+			return err
 		}
 		if !resolved.Success && strings.TrimSpace(resolved.Error) != "" {
 			return errors.New(strings.TrimSpace(resolved.Error))
@@ -765,6 +765,17 @@ func resolveInstallRoot(configuredRoot, fallback string) (string, error) {
 	return filepath.Clean(root), nil
 }
 
+func userCommandDirSpec() string {
+	if runtime.GOOS == "android" && strings.TrimSpace(os.Getenv("PREFIX")) != "" {
+		return "$PREFIX/bin"
+	}
+	return filepath.Join("$HOME", ".local", "bin")
+}
+
+func resolveUserCommandDir() (string, error) {
+	return resolveInstallRoot(userCommandDirSpec(), filepath.Join("$HOME", ".local", "bin"))
+}
+
 func defaultInstallRoot(pkg *api.ResolvedPackage) string {
 	switch pkg.Variant.InstallStrategy {
 	case "windows-desktop-bundle", "windows-portable-zip":
@@ -785,7 +796,7 @@ func defaultInstallRoot(pkg *api.ResolvedPackage) string {
 	case "linux-cli-wrapper":
 		return filepath.Join("$HOME", ".local", "share", "neuralv-shell")
 	case "unix-self-binary":
-		return filepath.Join("$HOME", ".local", "bin")
+		return userCommandDirSpec()
 	default:
 		return pkg.Variant.InstallRoot
 	}
@@ -924,7 +935,7 @@ func ensureLinuxPortableWrapper(pkg *api.ResolvedPackage, installRoot string) er
 
 	wrapperName := portableWrapperName(pkg)
 
-	wrapperDir, err := resolveInstallRoot("$HOME/.local/bin", filepath.Join("$HOME", ".local", "bin"))
+	wrapperDir, err := resolveUserCommandDir()
 	if err != nil {
 		return err
 	}
@@ -2159,6 +2170,10 @@ func humanizeError(err error) string {
 	switch {
 	case strings.Contains(lower, "pattern contains path separator"):
 		return "не удалось подготовить временную папку. Обнови NV и повтори команду."
+	case strings.Contains(lower, "has no matching variant"):
+		return "для этой системы нет сборки пакета."
+	case strings.Contains(lower, "is not published"):
+		return "эта версия пакета не опубликована для выбранной сборки."
 	case strings.Contains(lower, "mkdirtemp"):
 		return "не удалось подготовить временную папку для установки."
 	case strings.Contains(lower, "invalid cross-device link"), strings.Contains(lower, "different disk drive"):
@@ -2250,7 +2265,7 @@ func uninstallResolvedPackage(pkg *api.ResolvedPackage) error {
 		if err := os.RemoveAll(root); err != nil {
 			return err
 		}
-		wrapperDir, err := resolveInstallRoot("$HOME/.local/bin", filepath.Join("$HOME", ".local", "bin"))
+		wrapperDir, err := resolveUserCommandDir()
 		if err != nil {
 			return err
 		}
@@ -2271,7 +2286,7 @@ func uninstallResolvedPackage(pkg *api.ResolvedPackage) error {
 		if wrapperName == "" {
 			wrapperName = pkg.Name
 		}
-		wrapperDir, err := resolveInstallRoot("$HOME/.local/bin", filepath.Join("$HOME", ".local", "bin"))
+		wrapperDir, err := resolveUserCommandDir()
 		if err != nil {
 			return err
 		}
@@ -2665,6 +2680,150 @@ func selectedRefForInstall(selection packageSpec) string {
 	return ""
 }
 
+type packageResolveTarget struct {
+	GOOS    string
+	Variant string
+}
+
+func resolvePackageForCurrentPlatform(client *api.Client, name, version string) (*api.PackageResolveResponse, error) {
+	targets := currentResolveTargetsForPackage(name)
+	if len(targets) == 0 {
+		targets = []packageResolveTarget{{GOOS: runtime.GOOS}}
+	}
+
+	var lastErr error
+	for _, target := range targets {
+		resolved, err := client.ResolvePackage(name, version, target.GOOS, target.Variant)
+		if err != nil {
+			lastErr = err
+			if isVariantResolutionMiss(err) {
+				continue
+			}
+			return nil, err
+		}
+		if !resolved.Success && strings.TrimSpace(resolved.Error) != "" {
+			err := errors.New(strings.TrimSpace(resolved.Error))
+			lastErr = err
+			if isVariantResolutionMiss(err) {
+				continue
+			}
+		}
+		return resolved, nil
+	}
+	if lastErr != nil && isVariantResolutionMiss(lastErr) {
+		return nil, unsupportedPlatformPackageError(name)
+	}
+	if lastErr != nil {
+		return nil, lastErr
+	}
+	return nil, unsupportedPlatformPackageError(name)
+}
+
+func isVariantResolutionMiss(err error) bool {
+	if err == nil {
+		return false
+	}
+	lower := strings.ToLower(err.Error())
+	return strings.Contains(lower, "has no matching variant") ||
+		strings.Contains(lower, "is not published")
+}
+
+func unsupportedPlatformPackageError(name string) error {
+	return fmt.Errorf("пакет %s не опубликован для %s", normalizePackageName(name), currentPlatformLabel())
+}
+
+func currentPlatformLabel() string {
+	switch runtime.GOOS {
+	case "android":
+		return "Termux/" + runtime.GOARCH
+	case "linux":
+		return "Linux/" + runtime.GOARCH
+	case "windows":
+		return "Windows/" + runtime.GOARCH
+	default:
+		return runtime.GOOS + "/" + runtime.GOARCH
+	}
+}
+
+func currentResolveTargetsForPackage(name string) []packageResolveTarget {
+	normalized := normalizePackageName(name)
+	if normalized == "" {
+		return nil
+	}
+	if normalized == canonicalNVPackage {
+		if variant := currentVariantIDForPackage(name); variant != "" {
+			return []packageResolveTarget{{GOOS: runtime.GOOS, Variant: variant}}
+		}
+		return []packageResolveTarget{{GOOS: runtime.GOOS}}
+	}
+
+	prefix := safeFilesystemToken(normalized)
+	targets := []packageResolveTarget{}
+	add := func(goos, variant string) {
+		goos = strings.TrimSpace(goos)
+		variant = strings.TrimSpace(variant)
+		for _, existing := range targets {
+			if existing.GOOS == goos && existing.Variant == variant {
+				return
+			}
+		}
+		targets = append(targets, packageResolveTarget{GOOS: goos, Variant: variant})
+	}
+
+	switch runtime.GOOS {
+	case "android":
+		switch runtime.GOARCH {
+		case "arm64":
+			add("android", prefix+"-termux-arm64")
+			add("android", prefix+"-android-arm64")
+			add("linux", prefix+"-linux-arm64")
+			add("linux", prefix+"-linux-aarch64")
+		case "arm":
+			add("android", prefix+"-termux-armv7")
+			add("android", prefix+"-android-armv7")
+			add("linux", prefix+"-linux-armv7")
+			add("linux", prefix+"-linux-arm")
+		}
+		add("android", prefix+"-termux")
+		add("android", prefix+"-android")
+		add("android", "")
+	case "linux":
+		switch runtime.GOARCH {
+		case "amd64":
+			add("linux", prefix+"-linux-amd64")
+			add("linux", prefix+"-linux-x64")
+			add("linux", prefix+"-linux")
+			add("linux", "")
+		case "arm64":
+			add("linux", prefix+"-linux-arm64")
+			add("linux", prefix+"-linux-aarch64")
+			add("linux", prefix+"-linux")
+		case "arm":
+			add("linux", prefix+"-linux-armv7")
+			add("linux", prefix+"-linux-arm")
+			add("linux", prefix+"-linux")
+		default:
+			add("linux", prefix+"-linux-"+runtime.GOARCH)
+			add("linux", prefix+"-linux")
+		}
+	case "windows":
+		switch runtime.GOARCH {
+		case "amd64":
+			add("windows", prefix+"-windows-amd64")
+			add("windows", prefix+"-windows-x64")
+		case "arm64":
+			add("windows", prefix+"-windows-arm64")
+		}
+		add("windows", prefix+"-windows")
+		add("windows", "")
+	default:
+		add(runtime.GOOS, prefix+"-"+runtime.GOOS+"-"+runtime.GOARCH)
+		add(runtime.GOOS, prefix+"-"+runtime.GOOS)
+		add(runtime.GOOS, "")
+	}
+	return targets
+}
+
 func currentVariantIDForPackage(name string) string {
 	if normalizePackageName(name) != canonicalNVPackage {
 		return ""
@@ -2695,7 +2854,7 @@ func hasBrokenPortableWrapperTarget(pkg *api.ResolvedPackage, installRoot string
 		return false
 	}
 
-	wrapperDir, err := resolveInstallRoot("$HOME/.local/bin", filepath.Join("$HOME", ".local", "bin"))
+	wrapperDir, err := resolveUserCommandDir()
 	if err != nil {
 		return false
 	}
@@ -2858,7 +3017,7 @@ func removeUnifiedLinuxCLICompanion() error {
 		return err
 	}
 
-	wrapperDir, err := resolveInstallRoot("$HOME/.local/bin", filepath.Join("$HOME", ".local", "bin"))
+	wrapperDir, err := resolveUserCommandDir()
 	if err != nil {
 		return err
 	}
