@@ -66,8 +66,6 @@ func resolveBaseURL() string {
 }
 
 func handle(args []string, client *api.Client) error {
-	warnIfNVUpdateAvailable(args, client)
-
 	if len(args) == 0 {
 		printHelp()
 		return nil
@@ -80,6 +78,11 @@ func handle(args []string, client *api.Client) error {
 	case "help", "-h", "--help":
 		printHelp()
 		return nil
+	}
+
+	warnIfNVUpdateAvailable(args, client)
+
+	switch args[0] {
 	case "list", "ls":
 		return listInstalledPackages()
 	case "search", "find":
@@ -787,6 +790,13 @@ func resolveUserCommandDir() (string, error) {
 func isTermuxRuntime() bool {
 	prefix := strings.TrimSpace(os.Getenv("PREFIX"))
 	return prefix != "" && strings.Contains(prefix, "com.termux")
+}
+
+func termuxCurlPath() string {
+	if prefix := strings.TrimSpace(os.Getenv("PREFIX")); prefix != "" {
+		return filepath.Join(prefix, "bin", "curl")
+	}
+	return "/data/data/com.termux/files/usr/bin/curl"
 }
 
 func defaultInstallRoot(pkg *api.ResolvedPackage) string {
@@ -1952,9 +1962,6 @@ func downloadURLWithCurl(url, parentDir string) (string, func(), error) {
 	if !isTermuxRuntime() {
 		return "", func() {}, errors.New("curl fallback is only enabled for Termux")
 	}
-	if _, err := exec.LookPath("curl"); err != nil {
-		return "", func() {}, err
-	}
 	if parentDir = strings.TrimSpace(parentDir); parentDir == "" {
 		parentDir = os.TempDir()
 	}
@@ -1972,7 +1979,7 @@ func downloadURLWithCurl(url, parentDir string) (string, func(), error) {
 	}
 	cleanup := func() { _ = os.Remove(tempPath) }
 
-	command := exec.Command("curl", "-fsSL", "--connect-timeout", "20", "--max-time", "600", "-o", tempPath, url)
+	command := exec.Command(termuxCurlPath(), "-fsSL", "--connect-timeout", "20", "--max-time", "600", "-o", tempPath, url)
 	if output, err := command.CombinedOutput(); err != nil {
 		cleanup()
 		return "", func() {}, fmt.Errorf("%w: %s", err, strings.TrimSpace(string(output)))

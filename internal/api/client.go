@@ -478,15 +478,12 @@ func curlGet(fullURL, token string) ([]byte, error) {
 	if !isTermuxRuntime() {
 		return nil, errors.New("curl fallback is only enabled for Termux")
 	}
-	if _, err := exec.LookPath("curl"); err != nil {
-		return nil, err
-	}
 	args := []string{"-fsSL", "--connect-timeout", "20", "--max-time", "600"}
 	if token = strings.TrimSpace(token); token != "" {
 		args = append(args, "-H", "Authorization: Bearer "+token)
 	}
 	args = append(args, fullURL)
-	command := exec.Command("curl", args...)
+	command := exec.Command(termuxCurlPath(), args...)
 	output, err := command.Output()
 	if err != nil {
 		return nil, err
@@ -497,6 +494,13 @@ func curlGet(fullURL, token string) ([]byte, error) {
 func isTermuxRuntime() bool {
 	prefix := strings.TrimSpace(os.Getenv("PREFIX"))
 	return prefix != "" && strings.Contains(prefix, "com.termux")
+}
+
+func termuxCurlPath() string {
+	if prefix := strings.TrimSpace(os.Getenv("PREFIX")); prefix != "" {
+		return filepath.Join(prefix, "bin", "curl")
+	}
+	return "/data/data/com.termux/files/usr/bin/curl"
 }
 
 func normalizeOS(goos string) string {
