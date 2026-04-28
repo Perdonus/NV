@@ -56,7 +56,6 @@ jobs:
           build_nv nv-linux-arm64 linux arm64
           build_nv nv-linux-armv7 linux arm 7
           build_nv nv-termux-arm64 android arm64
-          build_nv nv-termux-armv7 android arm 7
           cp dist/nv-linux-amd64.tar.gz dist/nv-linux.tar.gz
           CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o dist/nvd ./cmd/nvd
           mkdir -p dist/nvd-bundle/registry dist/nvd-bundle/install
@@ -73,7 +72,6 @@ jobs:
             dist/nv-linux-arm64.tar.gz
             dist/nv-linux-armv7.tar.gz
             dist/nv-termux-arm64.tar.gz
-            dist/nv-termux-armv7.tar.gz
             dist/nvd-linux.tar.gz
 
   publish-linux:
@@ -101,7 +99,7 @@ jobs:
           mkdir -p publish/linux
           cp stage/nv-linux.tar.gz "publish/linux/nv-linux-${semver}.tar.gz"
           cp stage/nv-linux.tar.gz publish/linux/nv-linux.tar.gz
-          for platform in nv-linux-amd64 nv-linux-arm64 nv-linux-armv7 nv-termux-arm64 nv-termux-armv7; do
+          for platform in nv-linux-amd64 nv-linux-arm64 nv-linux-armv7 nv-termux-arm64; do
             cp "stage/${platform}.tar.gz" "publish/linux/${platform}-${semver}.tar.gz"
             cp "stage/${platform}.tar.gz" "publish/linux/${platform}.tar.gz"
           done
@@ -149,14 +147,12 @@ jobs:
             "publish/linux/nv-linux-arm64-${semver}.tar.gz#nv-linux-arm64-${semver}.tar.gz" \
             "publish/linux/nv-linux-armv7-${semver}.tar.gz#nv-linux-armv7-${semver}.tar.gz" \
             "publish/linux/nv-termux-arm64-${semver}.tar.gz#nv-termux-arm64-${semver}.tar.gz" \
-            "publish/linux/nv-termux-armv7-${semver}.tar.gz#nv-termux-armv7-${semver}.tar.gz" \
             "publish/linux/nvd-linux-${semver}.tar.gz#nvd-linux-${semver}.tar.gz" \
             "stage/nv-linux.tar.gz#nv-linux.tar.gz" \
             "stage/nv-linux-amd64.tar.gz#nv-linux-amd64.tar.gz" \
             "stage/nv-linux-arm64.tar.gz#nv-linux-arm64.tar.gz" \
             "stage/nv-linux-armv7.tar.gz#nv-linux-armv7.tar.gz" \
             "stage/nv-termux-arm64.tar.gz#nv-termux-arm64.tar.gz" \
-            "stage/nv-termux-armv7.tar.gz#nv-termux-armv7.tar.gz" \
             "stage/nvd-linux.tar.gz#nvd-linux.tar.gz" \
             "install/nv.sh#nv.sh" \
             --repo "$GITHUB_REPOSITORY" \

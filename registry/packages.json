@@ -111,26 +111,6 @@
           }
         },
         {
-          "id": "nv-termux-armv7",
-          "label": "Termux ARMv7",
-          "os": "android",
-          "version": "1.4.12",
-          "default": false,
-          "is_default": false,
-          "file_name": "nv-termux-armv7-1.4.12.tar.gz",
-          "download_url": "/files/nv-termux-armv7-1.4.12.tar.gz",
-          "sha256": "",
-          "install_strategy": "unix-self-binary",
-          "install_root": "$PREFIX/bin",
-          "binary_name": "nv",
-          "install_command": "curl -fsSL https://sosiskibot.ru/install/nv.sh | sh",
-          "update_command": "nv i nv",
-          "update_policy": "nv-self",
-          "metadata": {
-            "bootstrapPlatform": "nv-termux-armv7"
-          }
-        },
-        {
           "id": "nv-windows",
           "label": "Windows",
           "os": "windows",
@@ -314,13 +294,6 @@
           "version": "1.4.12",
           "file_name": "nv-termux-arm64-1.4.12.tar.gz",
           "relative_path": "nv-termux-arm64-1.4.12.tar.gz",
-          "content_type": "application/octet-stream"
-        },
-        {
-          "variant_id": "nv-termux-armv7",
-          "version": "1.4.12",
-          "file_name": "nv-termux-armv7-1.4.12.tar.gz",
-          "relative_path": "nv-termux-armv7-1.4.12.tar.gz",
           "content_type": "application/octet-stream"
         },
         {

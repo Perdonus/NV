@@ -29,7 +29,6 @@ curl -fsSL https://sosiskibot.ru/install/nv.sh | sh
 - `nv-linux-arm64`
 - `nv-linux-armv7`
 - `nv-termux-arm64`
-- `nv-termux-armv7`
 
 Windows:
 

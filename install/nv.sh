@@ -39,6 +39,10 @@ detect_platform() {
     *) echo "архитектура $machine пока не поддерживается" >&2; exit 1 ;;
   esac
   if [ "$IS_TERMUX" -eq 1 ]; then
+    if [ "$arch" = "armv7" ]; then
+      echo "Termux ARMv7 пока не поддерживается: нужен arm64 build." >&2
+      exit 1
+    fi
     echo "nv-termux-$arch"
   else
     echo "nv-linux-$arch"
