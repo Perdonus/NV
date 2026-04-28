@@ -38,9 +38,27 @@ jobs:
       - run: |
           set -euo pipefail
           mkdir -p dist
-          go build -trimpath -ldflags="-s -w -X main.nvVersion=${{ steps.version.outputs.semver }}" -o dist/nv ./cmd/nv
-          go build -trimpath -ldflags="-s -w" -o dist/nvd ./cmd/nvd
-          tar -C dist -czf dist/nv-linux.tar.gz nv
+          build_nv() {
+            platform="$1"
+            goos="$2"
+            goarch="$3"
+            goarm="${4:-}"
+            out_dir="dist/${platform}"
+            mkdir -p "$out_dir"
+            if [ -n "$goarm" ]; then
+              CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" GOARM="$goarm" go build -trimpath -ldflags="-s -w -X main.nvVersion=${{ steps.version.outputs.semver }}" -o "$out_dir/nv" ./cmd/nv
+            else
+              CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" go build -trimpath -ldflags="-s -w -X main.nvVersion=${{ steps.version.outputs.semver }}" -o "$out_dir/nv" ./cmd/nv
+            fi
+            tar -C "$out_dir" -czf "dist/${platform}.tar.gz" nv
+          }
+          build_nv nv-linux-amd64 linux amd64
+          build_nv nv-linux-arm64 linux arm64
+          build_nv nv-linux-armv7 linux arm 7
+          build_nv nv-termux-arm64 android arm64
+          build_nv nv-termux-armv7 android arm 7
+          cp dist/nv-linux-amd64.tar.gz dist/nv-linux.tar.gz
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o dist/nvd ./cmd/nvd
           mkdir -p dist/nvd-bundle/registry dist/nvd-bundle/install
           cp dist/nvd dist/nvd-bundle/nvd
           cp registry/packages.json dist/nvd-bundle/registry/packages.json
@@ -51,6 +69,11 @@ jobs:
           name: nv-linux
           path: |
             dist/nv-linux.tar.gz
+            dist/nv-linux-amd64.tar.gz
+            dist/nv-linux-arm64.tar.gz
+            dist/nv-linux-armv7.tar.gz
+            dist/nv-termux-arm64.tar.gz
+            dist/nv-termux-armv7.tar.gz
             dist/nvd-linux.tar.gz
 
   publish-linux:
@@ -78,6 +101,10 @@ jobs:
           mkdir -p publish/linux
           cp stage/nv-linux.tar.gz "publish/linux/nv-linux-${semver}.tar.gz"
           cp stage/nv-linux.tar.gz publish/linux/nv-linux.tar.gz
+          for platform in nv-linux-amd64 nv-linux-arm64 nv-linux-armv7 nv-termux-arm64 nv-termux-armv7; do
+            cp "stage/${platform}.tar.gz" "publish/linux/${platform}-${semver}.tar.gz"
+            cp "stage/${platform}.tar.gz" "publish/linux/${platform}.tar.gz"
+          done
           cp stage/nvd-linux.tar.gz "publish/linux/nvd-linux-${semver}.tar.gz"
           cp stage/nvd-linux.tar.gz publish/linux/nvd-linux.tar.gz
           sha="$(sha256sum "publish/linux/nv-linux-${semver}.tar.gz" | awk '{print $1}')"
@@ -118,8 +145,18 @@ jobs:
           fi
           gh release upload "$release_tag" \
             "publish/linux/nv-linux-${semver}.tar.gz#nv-linux-${semver}.tar.gz" \
+            "publish/linux/nv-linux-amd64-${semver}.tar.gz#nv-linux-amd64-${semver}.tar.gz" \
+            "publish/linux/nv-linux-arm64-${semver}.tar.gz#nv-linux-arm64-${semver}.tar.gz" \
+            "publish/linux/nv-linux-armv7-${semver}.tar.gz#nv-linux-armv7-${semver}.tar.gz" \
+            "publish/linux/nv-termux-arm64-${semver}.tar.gz#nv-termux-arm64-${semver}.tar.gz" \
+            "publish/linux/nv-termux-armv7-${semver}.tar.gz#nv-termux-armv7-${semver}.tar.gz" \
             "publish/linux/nvd-linux-${semver}.tar.gz#nvd-linux-${semver}.tar.gz" \
             "stage/nv-linux.tar.gz#nv-linux.tar.gz" \
+            "stage/nv-linux-amd64.tar.gz#nv-linux-amd64.tar.gz" \
+            "stage/nv-linux-arm64.tar.gz#nv-linux-arm64.tar.gz" \
+            "stage/nv-linux-armv7.tar.gz#nv-linux-armv7.tar.gz" \
+            "stage/nv-termux-arm64.tar.gz#nv-termux-arm64.tar.gz" \
+            "stage/nv-termux-armv7.tar.gz#nv-termux-armv7.tar.gz" \
             "stage/nvd-linux.tar.gz#nvd-linux.tar.gz" \
             "install/nv.sh#nv.sh" \
             --repo "$GITHUB_REPOSITORY" \

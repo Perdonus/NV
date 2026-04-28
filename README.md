@@ -18,6 +18,19 @@ Linux:
 curl -fsSL https://sosiskibot.ru/install/nv.sh | sh
 ```
 
+Termux:
+
+```sh
+curl -fsSL https://sosiskibot.ru/install/nv.sh | sh
+```
+
+`nv.sh` не требует Python. Он сам выбирает нужный артефакт:
+- `nv-linux-amd64`
+- `nv-linux-arm64`
+- `nv-linux-armv7`
+- `nv-termux-arm64`
+- `nv-termux-armv7`
+
 Windows:
 
 ```powershell
@@ -192,7 +205,9 @@ location ^~ /nv/api/ {
 
 ```sh
 curl https://sosiskibot.ru/nv/api/packages?os=all
-curl https://sosiskibot.ru/nv/api/bootstrap/manifest?platform=nv-linux
+curl https://sosiskibot.ru/nv/api/bootstrap/manifest?platform=nv-linux-amd64
+curl https://sosiskibot.ru/nv/api/bootstrap/manifest?platform=nv-linux-arm64
+curl https://sosiskibot.ru/nv/api/bootstrap/manifest?platform=nv-termux-arm64
 ```
 
 ### 3. Подготовить пакет

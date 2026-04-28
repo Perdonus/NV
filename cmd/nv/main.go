@@ -211,7 +211,7 @@ func installPackage(client *api.Client, spec string, options installOptions) err
 	}
 
 	step(1, 3, fmt.Sprintf("получаем пакет %s", name))
-	resolved, err := client.ResolvePackage(name, version, runtime.GOOS, "")
+	resolved, err := client.ResolvePackage(name, version, runtime.GOOS, currentVariantIDForPackage(name))
 	if err != nil {
 		return fmt.Errorf("реестр пакетов недоступен: %w", err)
 	}
@@ -740,6 +740,9 @@ func resolveInstallRoot(configuredRoot, fallback string) (string, error) {
 		"$HOME":         home,
 		"%USERPROFILE%": home,
 	}
+	if prefix := strings.TrimSpace(os.Getenv("PREFIX")); prefix != "" {
+		replacements["$PREFIX"] = prefix
+	}
 	localAppData := os.Getenv("LOCALAPPDATA")
 	if localAppData == "" {
 		localAppData = filepath.Join(home, "AppData", "Local")
@@ -843,6 +846,11 @@ func resolvedLauncherPath(pkg *api.ResolvedPackage) string {
 func shouldIgnoreRememberedInstallRoot(pkg *api.ResolvedPackage, installRoot, fallbackRoot string) bool {
 	if strings.TrimSpace(installRoot) == "" || isUnifiedDesktopPackage(pkg.Name) {
 		return false
+	}
+	if normalizePackageName(pkg.Name) == canonicalNVPackage &&
+		runtime.GOOS == "android" &&
+		!sameFilePath(installRoot, fallbackRoot) {
+		return true
 	}
 	switch pkg.Variant.InstallStrategy {
 	case "linux-portable-tar", "windows-portable-zip":
@@ -2653,6 +2661,33 @@ func selectedRefForInstall(selection packageSpec) string {
 	}
 	if selection.ExplicitVersion {
 		return ""
+	}
+	return ""
+}
+
+func currentVariantIDForPackage(name string) string {
+	if normalizePackageName(name) != canonicalNVPackage {
+		return ""
+	}
+	switch runtime.GOOS {
+	case "windows":
+		return "nv-windows"
+	case "android":
+		switch runtime.GOARCH {
+		case "arm64":
+			return "nv-termux-arm64"
+		case "arm":
+			return "nv-termux-armv7"
+		}
+	case "linux":
+		switch runtime.GOARCH {
+		case "amd64":
+			return "nv-linux-amd64"
+		case "arm64":
+			return "nv-linux-arm64"
+		case "arm":
+			return "nv-linux-armv7"
+		}
 	}
 	return ""
 }
