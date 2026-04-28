@@ -766,7 +766,7 @@ func resolveInstallRoot(configuredRoot, fallback string) (string, error) {
 }
 
 func userCommandDirSpec() string {
-	if runtime.GOOS == "android" && strings.TrimSpace(os.Getenv("PREFIX")) != "" {
+	if isTermuxRuntime() && strings.TrimSpace(os.Getenv("PREFIX")) != "" {
 		return "$PREFIX/bin"
 	}
 	if runtime.GOOS != "windows" && strings.EqualFold(strings.TrimSpace(os.Getenv("USER")), "root") {
@@ -777,6 +777,11 @@ func userCommandDirSpec() string {
 
 func resolveUserCommandDir() (string, error) {
 	return resolveInstallRoot(userCommandDirSpec(), filepath.Join("$HOME", ".local", "bin"))
+}
+
+func isTermuxRuntime() bool {
+	prefix := strings.TrimSpace(os.Getenv("PREFIX"))
+	return prefix != "" && strings.Contains(prefix, "com.termux")
 }
 
 func defaultInstallRoot(pkg *api.ResolvedPackage) string {
@@ -2191,6 +2196,8 @@ func humanizeError(err error) string {
 		return "сервер временно ограничил запросы. Попробуй чуть позже."
 	case strings.Contains(lower, "http 500"), strings.Contains(lower, "http 502"), strings.Contains(lower, "http 503"), strings.Contains(lower, "http 504"):
 		return "сервер временно недоступен. Попробуй позже."
+	case strings.Contains(lower, "x509:"), strings.Contains(lower, "certificate signed by unknown authority"):
+		return "система не доверяет TLS-сертификату. На Termux установи ca-certificates и обнови NV."
 	case strings.Contains(lower, "context deadline exceeded"), strings.Contains(lower, "client.timeout exceeded"), strings.Contains(lower, "timeout"):
 		return "сервер отвечает слишком долго. Попробуй ещё раз позже."
 	case strings.Contains(lower, "dial tcp"), strings.Contains(lower, "no such host"), strings.Contains(lower, "connection refused"):
@@ -2736,6 +2743,9 @@ func unsupportedPlatformPackageError(name string) error {
 }
 
 func currentPlatformLabel() string {
+	if isTermuxRuntime() {
+		return "Termux/" + runtime.GOARCH
+	}
 	switch runtime.GOOS {
 	case "android":
 		return "Termux/" + runtime.GOARCH
@@ -2755,7 +2765,11 @@ func currentResolveTargetsForPackage(name string) []packageResolveTarget {
 	}
 	if normalized == canonicalNVPackage {
 		if variant := currentVariantIDForPackage(name); variant != "" {
-			return []packageResolveTarget{{GOOS: runtime.GOOS, Variant: variant}}
+			goos := runtime.GOOS
+			if isTermuxRuntime() {
+				goos = "android"
+			}
+			return []packageResolveTarget{{GOOS: goos, Variant: variant}}
 		}
 		return []packageResolveTarget{{GOOS: runtime.GOOS}}
 	}
@@ -2771,6 +2785,28 @@ func currentResolveTargetsForPackage(name string) []packageResolveTarget {
 			}
 		}
 		targets = append(targets, packageResolveTarget{GOOS: goos, Variant: variant})
+	}
+
+	if isTermuxRuntime() {
+		switch runtime.GOARCH {
+		case "arm64":
+			add("android", prefix+"-termux-arm64")
+			add("android", prefix+"-android-arm64")
+			add("linux", prefix+"-linux-arm64")
+			add("linux", prefix+"-linux-aarch64")
+		case "arm":
+			add("android", prefix+"-termux-armv7")
+			add("android", prefix+"-android-armv7")
+			add("linux", prefix+"-linux-armv7")
+			add("linux", prefix+"-linux-arm")
+		default:
+			add("android", prefix+"-termux-"+runtime.GOARCH)
+			add("android", prefix+"-android-"+runtime.GOARCH)
+		}
+		add("android", prefix+"-termux")
+		add("android", prefix+"-android")
+		add("android", "")
+		return targets
 	}
 
 	switch runtime.GOOS {
@@ -2830,6 +2866,14 @@ func currentResolveTargetsForPackage(name string) []packageResolveTarget {
 func currentVariantIDForPackage(name string) string {
 	if normalizePackageName(name) != canonicalNVPackage {
 		return ""
+	}
+	if isTermuxRuntime() {
+		switch runtime.GOARCH {
+		case "arm64":
+			return "nv-termux-arm64"
+		case "arm":
+			return "nv-termux-armv7"
+		}
 	}
 	switch runtime.GOOS {
 	case "windows":

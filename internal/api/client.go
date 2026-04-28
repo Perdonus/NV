@@ -2,6 +2,8 @@ package api
 
 import (
 	"bytes"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -166,8 +168,53 @@ func NewClient(baseURL string) *Client {
 	}
 	return &Client{
 		baseURL: strings.TrimRight(baseURL, "/"),
-		http:    &http.Client{Timeout: 10 * time.Minute},
+		http:    newHTTPClient(),
 	}
+}
+
+func newHTTPClient() *http.Client {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	if rootCAs := termuxRootCAs(); rootCAs != nil {
+		transport.TLSClientConfig = &tls.Config{
+			MinVersion: tls.VersionTLS12,
+			RootCAs:    rootCAs,
+		}
+	}
+	return &http.Client{
+		Timeout:   10 * time.Minute,
+		Transport: transport,
+	}
+}
+
+func termuxRootCAs() *x509.CertPool {
+	prefix := strings.TrimSpace(os.Getenv("PREFIX"))
+	if prefix == "" || !strings.Contains(prefix, "com.termux") {
+		return nil
+	}
+
+	pool, err := x509.SystemCertPool()
+	if err != nil || pool == nil {
+		pool = x509.NewCertPool()
+	}
+
+	added := false
+	for _, candidate := range []string{
+		filepath.Join(prefix, "etc", "tls", "cert.pem"),
+		filepath.Join(prefix, "etc", "ssl", "cert.pem"),
+		filepath.Join(prefix, "etc", "ssl", "certs", "ca-certificates.crt"),
+	} {
+		payload, err := os.ReadFile(candidate)
+		if err != nil || len(payload) == 0 {
+			continue
+		}
+		if pool.AppendCertsFromPEM(payload) {
+			added = true
+		}
+	}
+	if !added {
+		return nil
+	}
+	return pool
 }
 
 func (c *Client) BaseURL() string {
